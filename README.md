@@ -1,6 +1,6 @@
 # baberu: Automated Subtitle Generation and Processing Pipeline
 
-This is a hobbyist project. No contributions will be accepted. Code is subject to change without notice.
+This is a hobbyist project. No contributions will be accepted. Features are subject to change without notice.
 
 ## Overview
 
