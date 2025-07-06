@@ -1,0 +1,54 @@
+# Configuration for Baberu
+working_dir: ""
+
+logging:
+  log_to_file: true
+  console_level: "INFO"
+  file_level: "DEBUG"
+
+transcription:
+  elevenlabs_model: "scribe_v1_experimental"
+  default_num_speakers: 32
+  default_lang_from: "ja"
+
+parsing:
+  delimiters: "。？！-"
+  soft_delimiters: "、"
+  soft_max_lines: 20
+  hard_max_lines: 50
+  hard_max_carryover: 15
+  parsing_model: "gpt-4.1-mini"
+
+mistimed_lines:
+  mistimed_line_thresh_sec: 0.1
+
+subtitle_padding:
+  max_lead_out_sec: 2.0
+  max_lead_in_sec: 0.25
+  max_cps: 15.0
+  min_sec: 1.0
+
+mistimed_segs:
+  mistimed_seg_thresh_sec: 0.1
+  seg_min_lines: 4
+  seg_backtrace_limit: 20
+  seg_foretrace_limit: 5
+  seg_min_delay: 10.0
+  seg_max_gap: 4
+
+translation:
+  default_model: "gemini-2.5-pro"
+  websearch_model: "gemini-2.5-pro"
+  default_lang_to: "en"
+  context_lines: 100
+  batch_lines: 50
+  discard_lines: 10
+  translate_retries: 3
+  server_retries: 20
+  max_cont_lines: 5
+  confirm_auto_context: true
+
+keys:
+  elevenlabs: ""
+  gemini: ""
+  openrouter: ""

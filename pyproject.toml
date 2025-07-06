@@ -1,0 +1,32 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "baberu"
+version = "0.1.0"
+description = "Transcribes and generates subtitles from audio/video."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "elevenlabs>=2.6.0",
+    "ffmpeg>=1.4",
+    "ffmpeg-python>=0.2.0",
+    "langcodes>=3.5.0",
+    "platformdirs>=4.2.0", 
+    "pysubs2>=1.8.0",
+    "python-dotenv>=1.1.1",
+    "PyYAML>=6.0.2",
+    "yt_dlp>=2025.6.30"
+]
+
+[project.scripts]
+baberu = "baberu.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools.package-data]
+"baberu.defaults" = ["*.yaml"]
