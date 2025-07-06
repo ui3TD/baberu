@@ -37,8 +37,8 @@ Baberu is a command-line utility for automating subtitle generation, refinement,
 1.  **Set up prerequisites:** Ensure FFmpeg, and API keys are set up as described above.
 2.  **Download and install baberu:**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-directory>
+    git clone https://github.com/ui3TD/baberu
+    cd baberu
     pip install .
     ```
 
