@@ -29,7 +29,7 @@ Baberu is a command-line utility for automating subtitle generation, refinement,
     *   It is recommended to set these as environment variables:
         ```bash
         export ELEVENLABS_API_KEY="your_elevenlabs_api_key"
-        export GOOGLE_API_KEY="your_google_gemini_api_key"
+        export GEMINI_API_KEY="your_google_gemini_api_key"
         ```
 
 ## Installation
