@@ -24,7 +24,7 @@ def _download(url: Path,
         logger.warning(f"Download skipped. File already exists: {output_file}")
         return output_file
 
-    logger.info(f"Downloading from {url}...")
+    logger.debug(f"Downloading from {url}...")
     downloaded_file: Path = av_utils.download(url, output_filename=output_file, download_directory=output_dir)
     logger.info(f"Downloaded to: {downloaded_file}")
     return downloaded_file
@@ -37,8 +37,9 @@ def _extract(video_file: Path,
 
     codec_name = av_utils.get_audio_codec(video_file)
     if not codec_name:
+        logger.error("No audio codec found for direct copy extraction.")
         raise ValueError(
-            f"No audio codec found for direct copy extraction. "
+            f"No audio codec found for direct copy extraction."
         )
     
     output_audio_file: Path = output_file or Path(output_root + "." + codec_name)
@@ -47,7 +48,7 @@ def _extract(video_file: Path,
         logger.warning(f"Extraction skipped. File already exists: {output_audio_file}")
         return output_audio_file
     
-    logger.info(f"Extracting audio from: {video_file} to {output_audio_file}")
+    logger.debug(f"Extracting audio from: {video_file} to {output_audio_file}")
     audio_file = av_utils.extract_audio(video_file, output_audio_file)
     logger.info(f"Audio extracted: {audio_file}")
     
@@ -71,10 +72,10 @@ def _transcribe(audio_file: Path,
         json_data = elevenlabs_utils.load_elevenlabs_json(json_file)
         return json_data 
         
-    logger.info(f"Transcribing audio from: {audio_file} to {json_file}")
+    logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
     json_data = elevenlabs_utils.transcribe_audio(audio_file, lang, model)
     elevenlabs_utils.write_elevenlabs_json(json_data, json_file)
-    logger.info(f"Transcription saved: {json_file}")
+    logger.info(f"Audio transcribed: {json_file}")
         
     return json_data
 
@@ -97,10 +98,10 @@ def _convert(json_data: dict[str, Any],
         sub_data = sub_utils.load(output_sub_file)
         return sub_data
 
-    logger.info(f"Converting transcription JSON to subtitles: {output_sub_file}")
+    logger.debug(f"Converting transcription JSON to subtitles: {output_sub_file}")
     sub_data = elevenlabs_utils.parse_elevenlabs(json_data, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
     sub_utils.write(sub_data, output_sub_file)
-    logger.info(f"Subtitles saved: {output_sub_file}")
+    logger.info(f"Transcription converted: {output_sub_file}")
 
     return sub_data
 
@@ -133,7 +134,7 @@ def _twopass(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".2pass_custom.ass")
 
         if output_sub_file.exists():
-            logger.warning(f"Two-pass process skipped. File already exists: {output_sub_file}")
+            logger.warning(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             new_lines = len(sub_data.events) - initial_lines
             segment = [min(segment), max(segment) + new_lines]
@@ -144,16 +145,16 @@ def _twopass(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".2pass.ass")
     
         if output_sub_file.exists():
-            logger.warning(f"Two-pass process skipped. File already exists: {output_sub_file}")
+            logger.warning(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             return sub_data, segment
             
         segments: list[list[int]] = sub_twopass.find_segments(sub_data, mistimed_seg_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap)
         if len(segments) == 0:
-            logger.info("Two-pass: No segments identified for retranscription.")
+            logger.info("Retranscription skipped. No segments identified for retranscription.")
             return sub_data, segment
 
-        logger.info(f"Retranscribing {len(segments)} segments for two-pass process...")
+        logger.debug(f"Retranscribing {len(segments)} segments for two-pass process...")
         segments = sub_twopass.pad_segments(sub_data, segments)
     
     sub_data = sub_twopass.transcribe_segments(sub_data, segments, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
@@ -164,7 +165,7 @@ def _twopass(sub_data: SSAFile,
         segment = [min(segment), max(min(segment), max(segment) + new_lines)]
 
     sub_utils.write(sub_data, output_sub_file)
-    logger.info(f"Two-pass subtitles saved: {output_sub_file}")
+    logger.info(f"Retranscription processed: {output_sub_file}")
     
     return sub_data, segment
 
@@ -193,7 +194,7 @@ def _fix(sub_data: SSAFile,
         sub_data = sub_utils.load(output_sub_file)
         return sub_data, segment
     
-    logger.info(f"Fixing mistimed subtitles... Output: {output_sub_file}")
+    logger.debug(f"Fixing mistimed subtitles... Output: {output_sub_file}")
     sub_data = sub_correction.fix_mistimed_lines(sub_data, mistimed_line_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap, segment)
     sub_data = sub_correction.remove_empty(sub_data, segment)
 
@@ -202,7 +203,7 @@ def _fix(sub_data: SSAFile,
         segment = [min(segment), max(min(segment), max(segment) + new_lines)]
 
     sub_utils.write(sub_data, output_sub_file)
-    logger.info(f"Fixed subtitles saved: {output_sub_file}")
+    logger.info(f"Subtitles fixed: {output_sub_file}")
 
     return sub_data, segment
 
@@ -221,7 +222,7 @@ def _contextualize(sub_data: SSAFile,
         if context_file.exists():
             context_data = sub_translation.load_context(context_file)
         else:
-            logger.info(f"Generating context file... Output: {context_file}")
+            logger.debug(f"Generating context file... Output: {context_file}")
             context_data = sub_translation.generate_context(sub_data, model, Path(output_root).name, lang_from, lang_to)
             sub_translation.write_lines([context_data], context_file)
 
@@ -230,6 +231,8 @@ def _contextualize(sub_data: SSAFile,
                 context_data = sub_translation.load_context(context_file)
     else:
         context_data = sub_translation.load_context(Path(instruction))
+    
+    logger.info(f"Context generated: {context_file}")
     return context_data
 
 def _translate(sub_data: SSAFile, 
@@ -276,7 +279,7 @@ def _translate(sub_data: SSAFile,
         sub_data = sub_utils.md_to_ass(sub_data)
     
     sub_utils.write(sub_data, output_sub_file)
-    logger.info(f"Translated subtitles saved: {output_sub_file}")
+    logger.info(f"Subtitles translated: {output_sub_file}")
 
     return sub_data
 
@@ -296,15 +299,15 @@ def _pad(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".padded.ass")
 
     if output_sub_file.exists():
-        logger.warning(f"Subtitle Fix skipped. File already exists: {output_sub_file}")
+        logger.warning(f"Subtitle padding skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
         return sub_data
 
-    logger.info(f"Padding subtitles... Output: {output_sub_file}")
+    logger.debug(f"Padding subtitles... Output: {output_sub_file}")
     sub_data = sub_correction.apply_timing_standards(sub_data, max_lead_out_sec, max_lead_in_sec, max_cps, min_sec, segment)
 
     sub_utils.write(sub_data, output_sub_file)
-    logger.info(f"Fixed subtitles saved: {output_sub_file}")
+    logger.info(f"Subtitles padded: {output_sub_file}")
 
     return sub_data
 
