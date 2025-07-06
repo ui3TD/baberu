@@ -6,8 +6,24 @@ from .image import base as image_base, imagen, dalle
 from .transcription import base as transcription_base, elevenlabs
 
 class AIToolFactory:
+    """A factory class for creating instances of AI tool providers."""
     @staticmethod
     def get_llm_provider(model_name: str, system_prompt: str = "") -> llm_base.LLMProvider:
+        """
+        Retrieves an appropriate LLM provider based on the model name.
+
+        This method inspects the model name to determine which provider to instantiate
+        (e.g., Gemini, Claude, OpenAI). It fetches the required API key from
+        environment variables. It also supports OpenRouter models specified in the
+        'creator/model' format.
+
+        Args:
+            model_name: The name of the language model.
+            system_prompt: An optional system prompt to initialize the provider with.
+
+        Returns:
+            An instance of a class derived from LLMProvider.
+        """
         logger = logging.getLogger(__name__)
 
         if "/" in model_name.lower():
@@ -57,6 +73,19 @@ class AIToolFactory:
         
     @staticmethod
     def get_image_provider(model_name: str) -> image_base.ImageProvider:
+        """
+        Retrieves an appropriate image generation provider based on the model name.
+
+        This method inspects the model name to determine which provider to instantiate
+        (e.g., Imagen, DALL-E) and fetches the required API key from
+        environment variables.
+
+        Args:
+            model_name: The name of the image generation model.
+
+        Returns:
+            An instance of a class derived from ImageProvider.
+        """
         logger = logging.getLogger(__name__)
 
         if 'imagen' in model_name.lower():
@@ -77,6 +106,19 @@ class AIToolFactory:
 
     @staticmethod
     def get_transcription_provider(model_name: str) -> transcription_base.TranscriptionProvider:
+        """
+        Retrieves an appropriate audio transcription provider based on the model name.
+
+        This method inspects the model name to determine which provider to instantiate
+        (e.g., ElevenLabs Scribe) and fetches the required API key from
+        environment variables.
+
+        Args:
+            model_name: The name of the transcription model.
+
+        Returns:
+            An instance of a class derived from TranscriptionProvider.
+        """
         logger = logging.getLogger(__name__)
 
         if 'scribe' in model_name.lower():
