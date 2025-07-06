@@ -1,10 +1,10 @@
-# Baberu: Automated Subtitle Generation and Processing Pipeline
+# baberu: Automated Subtitle Generation and Processing Pipeline
 
 This is a hobbyist project. No contributions will be accepted. Code is subject to change without notice.
 
 ## Overview
 
-Baberu is a command-line utility for automating subtitle generation, refinement, and translation. It processes media URLs, local video/audio files, or existing transcripts/subtitles through a configurable pipeline. Using external APIs like ElevenLabs and Google Gemini, it produces refined subtitles, typically in `.ass` format, handling steps from download and transcription to timing correction and translation.
+"baberu" is a command-line utility for automating subtitle generation, refinement, and translation. It processes media URLs, local video/audio files, or existing transcripts/subtitles through a configurable pipeline. Using external APIs like ElevenLabs and Google Gemini, it produces refined subtitles, typically in `.ass` format, handling steps from download and transcription to timing correction and translation.
 
 ## Features
 
