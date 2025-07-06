@@ -10,12 +10,18 @@ Baberu is a command-line utility for automating subtitle generation, refinement,
 
 *   **Versatile Input:** Accepts media URLs, local video/audio files, ElevenLabs JSON transcripts, or existing subtitle files (`.srt`, `.ass`, `.vtt`).
 *   **Modular Workflow:** Activate specific processing stages (download, extract, transcribe, convert, fix, translate) via command-line flags.
+*   **Autopilot Mode:** A single `--auto-pilot` flag to run the entire standard pipeline from media to translated and refined subtitles.
 *   **Automated Audio Extraction:** Extracts audio (defaults to `.opus`) from video sources.
 *   **AI-Powered Transcription:** Utilizes ElevenLabs API for speech-to-text.
 *   **Subtitle Generation:** Converts transcriptions into timed subtitles (default: `.ass`).
 *   **Accuracy Enhancement (Two-Pass):** Optionally re-transcribes low-confidence segments for improved accuracy.
 *   **Automated Timing Correction:** Applies heuristics to fix common subtitle timing issues.
+*   **Timing Refinement:** Pads subtitle timings to meet readability standards (CPS, lead-in/out).
 *   **Contextual Translation:** Translates subtitles using Google Gemini, leveraging auto-generated or provided context. Supports partial progress saving.
+*   **Targeted Processing:** Apply fixes, re-transcription, or translation to a specific range of lines using the `--lines` flag.
+*   **Final Output Options:**
+    *   Burn subtitles directly onto a video (`--hardcode`).
+    *   Create a video from an audio file and a static image (`--audio-to-video`).
 *   **Efficient Processing:** Skips completed stages by detecting existing intermediate files (e.g., `.opus`, `.json`, `.raw.ass`, `.en.ass`), enabling easy pipeline resumption.
 *   **Output Customization:** Allows specification of output directories and final filenames.
 
@@ -56,6 +62,10 @@ baberu <source_file_path_or_url> [options]
 
 *   `<source_file_path_or_url>`: Required. Can be a URL (e.g., YouTube), a local video/audio file, an ElevenLabs `.json` transcription, or a subtitle file (`.srt`, `.ass`, `.vtt`).
 
+**Workflow Control**
+
+*   `--auto-pilot`: Activates a full, standard pipeline: extract → speech-to-text → convert → retranscribe → fix → translate → pad. This is the most convenient option for a complete, one-shot workflow.
+
 **Core Options (Pipeline Stages):**
 
 Specify flags to activate corresponding steps. Steps are skipped if their expected output file already exists.
@@ -68,11 +78,18 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
 *   `--translate [PATH|'auto']`: Translate subtitles to English (generates `.en.ass`) using Google Gemini. (Requires API key).
     *   `'auto'`: Generate/use context summary (`.context.txt`).
     *   `PATH`: Use context from the specified text file (cannot be named `auto`).
+*   `--pad`: Apply timing padding and conform to readability standards (generates `.padded.ass`).
 
-**Output Control:**
+**Targeted Processing**
 
-*   `-o PATH`, `--output PATH`: Specify the final output file path (e.g., the final `.ass` file).
-*   `-d PATH`, `--directory PATH`: Specify the directory for all output files. Defaults to input file's directory or current directory for URLs.
+*   `--lines XX-YY|XX`: Restrict processing for `retranscribe`, `fix`, `translate`, and `pad` stages to a specific line range (e.g., `10-15`) or a single line (e.g., `10`). Indices are 1-based and inclusive. This generates a separate output file (e.g., `.fixed_custom.ass`).
+
+**Output & Finalization**
+
+*   `-o PATH`, `--output PATH`: Specify the final output file path (e.g., the final `.ass` or hardcoded `.mp4` file).
+*   `-d PATH`, `--directory PATH`: Specify the directory for all intermediate and final output files. Defaults to the input file's directory or the current directory for URLs.
+*   `--hardcode VIDEO_PATH`: Burn the resulting subtitles onto a video. Provide the path to the target video file.
+*   `--audio-to-video IMAGE_PATH`: Create a video by combining the source audio file with a specified static image.
 
 **Help:**
 
@@ -80,14 +97,15 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
 
 **Examples:**
 
-1.  **Full pipeline from URL (download, extract, transcribe, convert, fix, translate):**
+1.  **Full pipeline using Auto-Pilot:**
     ```bash
-    baberu "youtube_url" --extract --speech-to-text --convert --fix --translate auto -d ./output
+    # This single command runs the entire standard pipeline on a video URL
+    baberu "youtube_url" --auto-pilot -o ./final_subs.ass -d ./output
     ```
 
-2.  **Translate existing subtitles with custom context:**
+2.  **Translate existing subtitles with custom context and then pad them:**
     ```bash
-    baberu ./input.ass --translate ./my_context.txt -o ./input.en.ass
+    baberu ./input.ass --translate ./my_context.txt --pad -o ./input.en.padded.ass
     ```
 
 3.  **Transcribe local audio and convert:**
@@ -99,4 +117,16 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
     ```bash
     # Assumes video.mp4 and corresponding video.raw.ass exist
     baberu ./video.raw.ass --retranscribe auto --fix -o ./video.fixed.ass -d ./subs_dir
+    ```
+
+5.  **Fix only lines 50 to 62 in an existing subtitle file:**
+    ```bash
+    # Generates a .fixed_custom.ass file
+    baberu subs.ass --fix --lines 50-62
+    ```
+
+6.  **Generate subtitles and burn them into the source video:**
+    ```bash
+    # Runs the full pipeline and then hardcodes the result onto the original video
+    baberu ./my_video.mp4 --auto-pilot --hardcode ./my_video.mp4 -o ./my_video.hardcoded.mp4
     ```
