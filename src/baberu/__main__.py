@@ -512,8 +512,11 @@ def main():
         sub_file = sub_utils.write(sub_data, output_file)
         
     if audio_file and image_file and args.audio_to_video:
-        name_defined: bool = formats.is_video(output_file)
-        output_vid_file = output_file if name_defined else Path(output_root + ".mp4")
+        if formats.is_video(output_file):
+            output_vid_file = output_file
+        else:
+            output_vid_file = audio_file.with_name(f"{audio_file.stem}_template.mp4")
+        
         video_file = av_utils.audio_to_video(image_file, audio_file, output_vid_file)
 
     
@@ -537,7 +540,7 @@ def main():
 
             if not name_defined:
                 output_file = video_file.with_stem(f"{video_file.stem}_subbed")
-                
+
             av_utils.hardcode_subtitles(video_file, sub_file, output_file)
     
 

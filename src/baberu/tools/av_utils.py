@@ -184,22 +184,18 @@ def hardcode_subtitles(video_file: Path,
 
 def audio_to_video(image_file: Path,
                    audio_file: Path,
-                   output_file: Path | None = None) -> Path:
+                   output_file: Path) -> Path:
     """Creates a video from a static image and an audio track.
 
     Args:
         image_file: Path to the input static image file.
         audio_file: Path to the input audio file.
-        output_file: Optional path for the output video file.
+        output_file: Path for the output video file.
 
     Returns:
         The path to the created video file.
     """
     print(f"Creating video '{output_file.name}' from image '{image_file.name}' and audio '{audio_file.name}'...")
-
-    # If no output file is specified, create one with '_subbed' suffix
-    if output_file is None:
-        output_file = audio_file.with_name(f"{audio_file.stem}_template.mp4")
 
     try:
         # Define the input streams
