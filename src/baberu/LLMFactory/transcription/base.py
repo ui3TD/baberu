@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
-import pydantic # Or dataclasses
+import pydantic
+import logging
 
 # Define a canonical (standard) data model for a word
 class TranscribedWord(pydantic.BaseModel):
@@ -18,9 +19,20 @@ class TranscriptionResult(pydantic.BaseModel):
 
 class TranscriptionProvider(ABC):
     """Abstract base class for all transcription providers."""
+    def __init__(self, api_key: str, model: str):
+        """Initializes the LLM provider.
+
+        Args:
+            api_key: The API key for the LLM provider.
+            model: The specific model to be used.
+            system_prompt: An optional default system prompt for all requests.
+        """
+        self.api_key = api_key
+        self.model = model
+        self.logger = logging.getLogger(__name__)
     
     @abstractmethod
-    def transcribe(self, audio_file: Path, num_speakers: int, lang: str) -> TranscriptionResult:
+    def transcribe(self, audio_file: Path, **kwargs) -> TranscriptionResult:
         """
         Transcribes an audio file and returns a standardized TranscriptionResult object.
         """
