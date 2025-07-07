@@ -8,7 +8,6 @@ logging:
 
 transcription:
   elevenlabs_model: "scribe_v1_experimental"
-  default_num_speakers: 32
   default_lang_from: "ja"
 
 parsing:
