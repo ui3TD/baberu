@@ -2,7 +2,7 @@ from .base import ImageProvider
 from openai import OpenAI
 from pathlib import Path
 
-class DallEProvider(ImageProvider):
+class OpenAIProvider(ImageProvider):
     def __init__(self, api_key: str, model: str):
         super().__init__(api_key, model)
         self.client = OpenAI(api_key=self.api_key)
@@ -12,6 +12,8 @@ class DallEProvider(ImageProvider):
         quality = "standard"
         if "dall-e-3" in self.model.lower():
             quality = "hd"
+        if "gpt" in self.model.lower():
+            quality = "high"
             
         response = self.client.images.generate(
             model=self.model,
