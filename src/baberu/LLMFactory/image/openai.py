@@ -1,6 +1,7 @@
 from .base import ImageProvider
 from openai import OpenAI
 from pathlib import Path
+import base64
 
 class OpenAIProvider(ImageProvider):
     def __init__(self, api_key: str, model: str):
@@ -23,8 +24,16 @@ class OpenAIProvider(ImageProvider):
             params["quality"] = "high"
         
         response = self.client.images.generate(**params)
-        response = response.data[0].url
-        self._download_image(response, file_path)
+        self.logger.debug(f"Response from API: {response.model_dump_json()}")
+
+        if "dall-e" in self.model.lower():
+            response = response.data[0].url
+            self._download_image(response, file_path)
+        elif "gpt" in self.model.lower():
+            image_base64 = response.model_dump()["data"][0]["b64_json"]
+            image_bytes = base64.b64decode(image_base64)
+            with open(file_path, "wb") as f:
+                f.write(image_bytes)
         return
     
     def _download_image(self, url: str, file_name: Path) -> None:
