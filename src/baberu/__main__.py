@@ -333,6 +333,7 @@ def main():
     url: str | None = None
     video_file: Path | None = None
     audio_file: Path | None = None
+    image_file: Path | None = None
     json_file: Path | None = None
     sub_file: Path | None = None
     json_data: dict[str, Any] | None = None
@@ -421,7 +422,18 @@ def main():
         except ValueError:
             logger.error(f"Line range must be in format XX-YY (e.g. 5-10) or XX (e.g. 5): {args.lines}")
             raise
-            
+
+    if args.audio_to_video:
+        image_file = Path(args.audio_to_video)
+        if not formats.is_image(image_file):
+            logger.error(f"Audio-to-Video file is not a recognized image format: {args.audio_to_video}")
+            raise ValueError
+        if not Path(image_fileo).exists():
+            logger.error(f"Audio-to-Video image file does not exist: {args.translate}")
+            raise FileNotFoundError
+        if Path(image_file).is_dir():
+            logger.error(f"Audio-to-Video image file cannot be a directory: {args.translate}")
+            raise IsADirectoryError
 
     environ.setdefault('BABERU_DIR', app_config['working_dir'])
     environ.setdefault('GEMINI_API_KEY', app_config['keys']['gemini'])
@@ -499,12 +511,10 @@ def main():
     if sub_data and formats.is_text(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
         
-    if audio_file and args.audio_to_video and formats.is_image(Path(args.audio_to_video)):
+    if audio_file and image_file and args.audio_to_video:
         name_defined: bool = formats.is_video(output_file)
-        
         output_vid_file = output_file if name_defined else Path(output_root + ".mp4")
-
-        video_file = av_utils.audio_to_video(Path(args.audio_to_video), audio_file, output_vid_file)
+        video_file = av_utils.audio_to_video(image_file, audio_file, output_vid_file)
 
     if args.hardcode:
         arg_path: Path = Path(args.hardcode)
