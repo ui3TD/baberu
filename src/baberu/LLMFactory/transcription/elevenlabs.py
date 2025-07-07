@@ -24,7 +24,8 @@ class ScribeProvider(TranscriptionProvider):
             audio_data: BytesIO = BytesIO(f.read())
 
         segmented_json = {
-            "format": "segmented_json"
+            "format": "segmented_json",
+            "segment_on_silence_longer_than_s": 3
         }
 
         transcription: SpeechToTextChunkResponseModel = self.client.speech_to_text.convert(
