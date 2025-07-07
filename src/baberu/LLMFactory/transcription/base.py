@@ -4,17 +4,20 @@ from typing import List
 import pydantic
 import logging
 
-# Define a canonical (standard) data model for a word
 class TranscribedWord(pydantic.BaseModel):
     text: str
     start: float
     end: float
-    speaker: int | None = None
+    type: str = "text"
+    speaker: str | None = None
     confidence: float | None = None
-
-# Define the canonical output for any transcription provider
-class TranscriptionResult(pydantic.BaseModel):
+    
+class TranscribedSegment(pydantic.BaseModel):
     words: List[TranscribedWord]
+    speaker: str | None = None
+
+class TranscriptionResult(pydantic.BaseModel):
+    segments: List[TranscribedSegment]
     # You can add other metadata here if needed
 
 class TranscriptionProvider(ABC):

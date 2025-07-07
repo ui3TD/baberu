@@ -1,11 +1,11 @@
 from elevenlabs.client import ElevenLabs
-from elevenlabs.types import SpeechToTextChunkResponseModel
+from elevenlabs.types import SpeechToTextChunkResponseModel, SpeechToTextWordResponseModel
 
-from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord
+from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 
 from pathlib import Path
 from io import BytesIO
-# ... other imports
+from itertools import groupby
 
 class ScribeProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -33,20 +33,28 @@ class ScribeProvider(TranscriptionProvider):
             request_options = {"timeout_in_seconds": 3600}
         )
 
-        transcription_json = transcription.model_dump()
-
-        # Step 2: Parse the service-specific JSON into our canonical format
-        standardized_words = []
-        for segment in transcription_json.get('segments', []):
-            for word_data in segment.get('words', []):
-                 if word_data.get('type') == 'word':
-                    standardized_words.append(
-                        TranscribedWord(
-                            text=word_data['text'],
-                            start=word_data['start'],
-                            end=word_data['end'],
-                            speaker=segment.get('speaker_id')
-                        )
-                    )
+        grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
+        segments: list[TranscribedSegment] = []
+        for speaker_id, words_group in grouped_words:
+            words_list: list[SpeechToTextWordResponseModel] = list(words_group)
+            
+            # Convert to TranscribedWord objects
+            transcribed_words = [
+                TranscribedWord(
+                    text=word.text,
+                    start=word.start or 0.0,
+                    end=word.end or 0.0,
+                    type=word.type,
+                    speaker=speaker_id or None,
+                    confidence=word.logprob or None
+                )
+                for word in words_list
+            ]
+            
+            segment = TranscribedSegment(
+                words=transcribed_words,
+                speaker=speaker_id
+            )
+            segments.append(segment)
         
-        return TranscriptionResult(words=standardized_words)
+        return TranscriptionResult(segments=segments)
