@@ -8,20 +8,21 @@ class OpenAIProvider(ImageProvider):
         self.client = OpenAI(api_key=self.api_key)
     
     def prompt(self, prompt: str, file_path: Path, **kwargs) -> None:
-
-        quality = "standard"
+        # Build the base parameters
+        params = {
+            "model": self.model,
+            "prompt": prompt,
+            "size": "1024x1024",
+            "n": 1
+        }
+        
+        # Only add quality if it should be set
         if "dall-e-3" in self.model.lower():
-            quality = "hd"
-        if "gpt" in self.model.lower():
-            quality = "high"
-            
-        response = self.client.images.generate(
-            model=self.model,
-            prompt=prompt,
-            size="1024x1024",
-            quality=quality,
-            n=1
-        )
+            params["quality"] = "hd"
+        elif "gpt" in self.model.lower():
+            params["quality"] = "high"
+        
+        response = self.client.images.generate(**params)
         response = response.data[0].url
         self._download_image(response, file_path)
         return
