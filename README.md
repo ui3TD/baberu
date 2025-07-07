@@ -64,21 +64,21 @@ baberu <source_file_path_or_url> [options]
 
 **Workflow Control**
 
-*   `--auto-pilot`: Activates a full, standard pipeline: extract → speech-to-text → convert → retranscribe → fix → translate → pad. This is the most convenient option for a complete, one-shot workflow.
+*   `-A`, `--auto-pilot`: Activates a full, standard pipeline: extract → speech-to-text → convert → retranscribe → fix → translate → pad. This is the most convenient option for a complete, one-shot workflow.
 
 **Core Options (Pipeline Stages):**
 
 Specify flags to activate corresponding steps. Steps are skipped if their expected output file already exists.
 
-*   `--extract`: Extract audio (to `.opus`) from video input.
-*   `--speech-to-text`: Transcribe audio to text (`.json`) using ElevenLabs. (Requires API key).
-*   `--convert`: Convert `.json` transcription to raw subtitles (`.raw.ass`).
-*   `--retranscribe [PATH|'auto']`: Refine specific subtitle segments via re-transcription (generates `.2pass.ass`). Requires audio: `'auto'` uses pipeline audio, `PATH` specifies an audio file. (Requires ElevenLabs API key).
-*   `--fix`: Apply automated timing corrections (generates `.fixed.ass`).
-*   `--translate [PATH|'auto']`: Translate subtitles to English (generates `.en.ass`) using Google Gemini. (Requires API key).
+*   `-x`, `--extract`: Extract audio (to `.opus`) from video input.
+*   `-s`, `--speech-to-text`: Transcribe audio to text (`.json`) using ElevenLabs. (Requires API key).
+*   `-c`, `--convert`: Convert `.json` transcription to raw subtitles (`.raw.ass`).
+*   `-r [PATH|'auto']`, `--retranscribe [PATH|'auto']`: Refine specific subtitle segments via re-transcription (generates `.2pass.ass`). Requires audio: `'auto'` uses pipeline audio, `PATH` specifies an audio file. (Requires ElevenLabs API key).
+*   `-f`, `--fix`: Apply automated timing corrections (generates `.fixed.ass`).
+*   `-t [PATH|'auto']`, `--translate [PATH|'auto']`: Translate subtitles to English (generates `.en.ass`) using Google Gemini. (Requires API key).
     *   `'auto'`: Generate/use context summary (`.context.txt`).
     *   `PATH`: Use context from the specified text file (cannot be named `auto`).
-*   `--pad`: Apply timing padding and conform to readability standards (generates `.padded.ass`).
+*   `-p`, `--pad`: Apply timing padding and conform to readability standards (generates `.padded.ass`).
 
 **Targeted Processing**
 
@@ -100,33 +100,33 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
 1.  **Full pipeline using Auto-Pilot:**
     ```bash
     # This single command runs the entire standard pipeline on a video URL
-    baberu "youtube_url" --auto-pilot -o ./final_subs.ass -d ./output
+    baberu "youtube_url" -A -o ./final_subs.ass -d ./output
     ```
 
 2.  **Translate existing subtitles with custom context and then pad them:**
     ```bash
-    baberu ./input.ass --translate ./my_context.txt --pad -o ./input.en.padded.ass
+    baberu ./input.ass -t ./my_context.txt -p -o ./input.en.padded.ass
     ```
 
 3.  **Transcribe local audio and convert:**
     ```bash
-    baberu ./meeting.mp3 --speech-to-text --convert -o ./meeting.raw.ass
+    baberu ./meeting.mp3 -s -c -o ./meeting.raw.ass
     ```
 
 4.  **Apply two-pass refinement and fixes to existing subs, using pipeline audio:**
     ```bash
     # Assumes video.mp4 and corresponding video.raw.ass exist
-    baberu ./video.raw.ass --retranscribe auto --fix -o ./video.fixed.ass -d ./subs_dir
+    baberu ./video.raw.ass -r auto -f -o ./video.fixed.ass -d ./subs_dir
     ```
 
 5.  **Fix only lines 50 to 62 in an existing subtitle file:**
     ```bash
     # Generates a .fixed_custom.ass file
-    baberu subs.ass --fix --lines 50-62
+    baberu subs.ass -f --lines 50-62
     ```
 
 6.  **Generate subtitles and burn them into the source video:**
     ```bash
     # Runs the full pipeline and then hardcodes the result onto the original video
-    baberu ./my_video.mp4 --auto-pilot --hardcode ./my_video.mp4 -o ./my_video.hardcoded.mp4
+    baberu ./my_video.mp4 -A --hardcode ./my_video.mp4 -o ./my_video.hardcoded.mp4
     ```
