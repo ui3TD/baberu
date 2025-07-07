@@ -32,6 +32,7 @@ class ScribeProvider(TranscriptionProvider):
             timestamps_granularity="word",
             request_options = {"timeout_in_seconds": 3600}
         )
+        self.logger.debug(f"API response: {transcription.model_dump_json()}")
 
         grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
         segments: list[TranscribedSegment] = []
