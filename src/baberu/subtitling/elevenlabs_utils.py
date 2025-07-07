@@ -16,6 +16,7 @@ import pysubs2
 
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.llm.base import LLMProvider
+from baberu.LLMFactory.transcription.base import TranscriptionProvider, TranscriptionResult, TranscribedSegment, TranscribedWord
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,79 @@ def parse_elevenlabs(el_data: SpeechToTextChunkResponseModel,
         
         words: list[dict[str, Any]] = [
             item.model_dump() for item in segment_words if item.type in ["word", "spacing"]
+        ]
+
+        if not words:
+            continue
+
+        # Merge words into lines by delimiter
+        text_lines = _merge_words(words, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, model)
+
+        all_lines.extend(text_lines)
+
+
+    # Create subtitle file objects
+    sub_file: SSAFile = SSAFile()
+
+    for line in all_lines:
+        event = SSAEvent(
+            start=pysubs2.time.times_to_ms(s=line.get("start", 0)),
+            end=pysubs2.time.times_to_ms(s=line.get("end", 0)),
+            text=line['text'],
+            style="Default"
+        )
+        sub_file.events.append(event)
+
+    logger.info(f"Converted {len(all_lines)} lines to ASS format")
+    return sub_file
+
+def load_transcript_json(file_path: Path) -> TranscriptionResult:
+    """Loads JSON data from a file.
+
+    Args:
+        file_path (Path): Path to the JSON file.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            json_data: dict[str, Any] = json.load(f)
+        return TranscriptionResult.model_validate(json_data)
+    except FileNotFoundError:
+        logger.error(f"Error: File '{file_path}' not found.")
+        raise
+    except json.JSONDecodeError:
+        logger.error(f"Error: File '{file_path}' contains invalid JSON.")
+        raise
+    except Exception as e:
+        logger.error(f"Error loading file: {str(e)}")
+        raise
+    
+def write_transcript_json(transcript: TranscriptionResult, 
+                          output_file: Path) -> Path:
+    json_data = transcript.model_dump()
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"Audio transcription completed. JSON saved to {output_file}")
+    return output_file
+
+def parse_transcript(transcript: TranscriptionResult,
+                    delimiters: str | list[str] = [],
+                    soft_delimiters: str | list[str] = [],
+                    soft_max_lines: int = 20,
+                    hard_max_lines: int = 50,
+                    hard_max_carryover: int = 10,
+                    model: str = "") -> SSAFile:
+    """Converts a transcription object to a subtitle file object.
+
+    This function processes word-level timestamp data, merges words into lines based
+    on delimiters and length constraints, and formats the result as an SSAFile object.
+    """
+    all_lines: list[dict[str, Any]] = []
+
+    # Group words by speaker_id to define segments
+    for segments in transcript.segments:
+        words: list[dict[str, Any]] = [
+            item.model_dump() for item in segments.words if item.type in ["word", "spacing"]
         ]
 
         if not words:
