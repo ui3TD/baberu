@@ -517,7 +517,7 @@ def main():
         video_file = av_utils.audio_to_video(image_file, audio_file, output_vid_file)
 
     
-    if args.hardcode:
+    if args.hardcode and args.hardcode != "auto":
         hardcode_path: Path = Path(args.hardcode)
         if formats.is_sub(hardcode_path):
             if sub_file:
