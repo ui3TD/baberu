@@ -534,8 +534,11 @@ def main():
             
         if video_file and sub_file:
             name_defined: bool = formats.is_video(output_file)
-            av_utils.hardcode_subtitles(video_file, sub_file,
-                                        output_file if name_defined else None)
+
+            if not name_defined:
+                output_file = video_file.with_stem(f"{video_file.stem}_subbed")
+                
+            av_utils.hardcode_subtitles(video_file, sub_file, output_file)
     
 
 if __name__ == "__main__":

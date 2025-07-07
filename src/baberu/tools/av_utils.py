@@ -139,23 +139,18 @@ def cut_audio(audio_file: Path,
 
 def hardcode_subtitles(video_file: Path,
                        subtitle_file: Path,
-                       output_file: Path | None = None) -> Path:
+                       output_file: Path) -> Path:
     """Burns subtitles into a video, re-encoding to H.264 video and AAC audio.
 
     Args:
         video_file: Path to the input video file.
         subtitle_file: Path to the subtitle file (e.g., .srt, .ass).
-        output_file: Optional path for the output video. If not provided,
-            a '_subbed' suffix is added to the original video name.
+        output_file: Path for the output video.
 
     Returns:
         The path to the video with hardcoded subtitles.
     """
     print(f"Hardcoding subtitles from {subtitle_file} into {video_file}...")
-
-    # If no output file is specified, create one with '_subbed' suffix
-    if output_file is None:
-        output_file = video_file.with_stem(f"{video_file.stem}_subbed")
 
     # Hardcode subtitles using ffmpeg with h264 encoding
     try:
