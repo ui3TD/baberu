@@ -532,7 +532,6 @@ def main():
             else:
                 video_file = Path(hardcode_path)
             
-    if args.hardcode:
         if video_file and sub_file:
             name_defined: bool = formats.is_video(output_file)
             av_utils.hardcode_subtitles(video_file, sub_file,
