@@ -428,7 +428,7 @@ def main():
         if not formats.is_image(image_file):
             logger.error(f"Audio-to-Video file is not a recognized image format: {args.audio_to_video}")
             raise ValueError
-        if not Path(image_fileo).exists():
+        if not Path(image_file).exists():
             logger.error(f"Audio-to-Video image file does not exist: {args.translate}")
             raise FileNotFoundError
         if Path(image_file).is_dir():
@@ -516,24 +516,27 @@ def main():
         output_vid_file = output_file if name_defined else Path(output_root + ".mp4")
         video_file = av_utils.audio_to_video(image_file, audio_file, output_vid_file)
 
+    
     if args.hardcode:
-        arg_path: Path = Path(args.hardcode)
-        if formats.is_sub(arg_path):
-            sub_file = Path(arg_path)
-        elif formats.is_video(arg_path):
-            video_file = Path(arg_path)
-
+        hardcode_path: Path = Path(args.hardcode)
+        if formats.is_sub(hardcode_path):
+            if sub_file:
+                logger.error(f"Error: Two subtitle files provided: {sub_file} and {args.hardcode}")
+                raise ValueError
+            else:
+                sub_file = Path(hardcode_path)
+        elif formats.is_video(hardcode_path):
+            if video_file:
+                logger.error(f"Error: Two video files provided: {video_file} and {args.hardcode}")
+                raise ValueError
+            else:
+                video_file = Path(hardcode_path)
+            
+    if args.hardcode:
         if video_file and sub_file:
             name_defined: bool = formats.is_video(output_file)
             av_utils.hardcode_subtitles(video_file, sub_file,
                                         output_file if name_defined else None)
-        elif sub_data and video_file:
-            name_defined: bool = formats.is_video(output_file)
-            with tempfile.NamedTemporaryFile(suffix='.ass') as temp_subs:
-                temp_sub_file: Path = Path(temp_subs.name)
-                temp_sub_file = sub_utils.write(sub_data, temp_sub_file)
-                av_utils.hardcode_subtitles(arg_path, temp_sub_file,
-                                            output_file if name_defined else None)
     
 
 if __name__ == "__main__":
