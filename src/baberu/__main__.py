@@ -488,21 +488,36 @@ def main():
         context_data = _contextualize(sub_data, args.translate, output_root, websearch_model, lang_from, lang_to)            
         sub_data = _translate(sub_data, context_data, output_root, model, lang_from, lang_to, segment)
     
+    # Write final subtitle file
+    if sub_data and formats.is_sub(output_file):
+        sub_file = sub_utils.write(sub_data, output_file)
+    
+    if sub_data and formats.is_text(output_file):
+        sub_file = sub_utils.write(sub_data, output_file)
+
     # Add padding time to subtitles
     if sub_data and (args.pad or args.auto_pilot):
         sub_data = _pad(sub_data, output_root, segment)
 
+    if audio_file and args.audio_to_video and formats.is_image(Path(args.audio_to_video)):
+        name_defined: bool = formats.is_video(output_file)
+        
+        output_vid_file = output_file if name_defined else Path(output_root + ".mp4")
+
+        video_file = av_utils.audio_to_video(Path(args.audio_to_video), audio_file, output_vid_file)
+
     if args.hardcode:
         arg_path: Path = Path(args.hardcode)
-        if video_file and formats.is_sub(arg_path):
+        if formats.is_sub(arg_path):
+            sub_file = Path(arg_path)
+        elif formats.is_video(arg_path):
+            video_file = Path(arg_path)
+
+        if video_file and sub_file:
             name_defined: bool = formats.is_video(output_file)
-            av_utils.hardcode_subtitles(video_file, arg_path,
+            av_utils.hardcode_subtitles(video_file, sub_file,
                                         output_file if name_defined else None)
-        elif sub_file and formats.is_video(arg_path):
-            name_defined: bool = formats.is_video(output_file)
-            av_utils.hardcode_subtitles(arg_path, sub_file,
-                                        output_file if name_defined else None)
-        elif sub_data and formats.is_video(arg_path):
+        elif sub_data and video_file:
             name_defined: bool = formats.is_video(output_file)
             with tempfile.NamedTemporaryFile(suffix='.ass') as temp_subs:
                 temp_sub_file: Path = Path(temp_subs.name)
@@ -510,19 +525,6 @@ def main():
                 av_utils.hardcode_subtitles(arg_path, temp_sub_file,
                                             output_file if name_defined else None)
     
-    if audio_file and args.audio_to_video and formats.is_image(Path(args.audio_to_video)):
-        name_defined: bool = formats.is_video(output_file)
-        
-        output_vid_file = output_file if name_defined else Path(output_root + ".mp4")
-
-        av_utils.audio_to_video(Path(args.audio_to_video), audio_file, output_vid_file)
-    
-    # Write final file
-    if sub_data and formats.is_sub(output_file):
-        sub_file = sub_utils.write(sub_data, output_file)
-    
-    if sub_data and formats.is_text(output_file):
-        sub_file = sub_utils.write(sub_data, output_file)
 
 if __name__ == "__main__":
     main()
