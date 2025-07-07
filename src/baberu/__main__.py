@@ -109,7 +109,7 @@ def _twopass(sub_data: SSAFile,
              audio_file: Path,
              output_root: str,
              lang: str,
-             segment: list[int] = []) -> tuple[SSAFile, list[int]]:
+             segment: list[int] = []) -> tuple[SSAFile, list[int], Path]:
     """Performs a two-pass transcription to correct poorly transcribed segments."""
     transcription_config = app_config['transcription']
     parsing_config = app_config['parsing']
@@ -138,7 +138,7 @@ def _twopass(sub_data: SSAFile,
             sub_data = sub_utils.load(output_sub_file)
             new_lines = len(sub_data.events) - initial_lines
             segment = [min(segment), max(segment) + new_lines]
-            return sub_data, segment
+            return sub_data, segment, output_sub_file
         
         segments = [segment]
     else:
@@ -147,12 +147,12 @@ def _twopass(sub_data: SSAFile,
         if output_sub_file.exists():
             logger.warning(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
-            return sub_data, segment
+            return sub_data, segment, output_sub_file
             
         segments: list[list[int]] = sub_twopass.find_segments(sub_data, mistimed_seg_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap)
         if len(segments) == 0:
             logger.info("Retranscription skipped. No segments identified for retranscription.")
-            return sub_data, segment
+            return sub_data, segment, output_sub_file
 
         logger.debug(f"Retranscribing {len(segments)} segments for two-pass process...")
         segments = sub_twopass.pad_segments(sub_data, segments)
@@ -167,7 +167,7 @@ def _twopass(sub_data: SSAFile,
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Retranscription processed: {output_sub_file}")
     
-    return sub_data, segment
+    return sub_data, segment, output_sub_file
 
 def _fix(sub_data: SSAFile, 
          output_root: str,
@@ -192,7 +192,7 @@ def _fix(sub_data: SSAFile,
     if output_sub_file.exists():
         logger.warning(f"Subtitle Fix skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
-        return sub_data, segment
+        return sub_data, segment, output_sub_file
     
     logger.debug(f"Fixing mistimed subtitles... Output: {output_sub_file}")
     sub_data = sub_correction.fix_mistimed_lines(sub_data, mistimed_line_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap, segment)
@@ -205,7 +205,7 @@ def _fix(sub_data: SSAFile,
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Subtitles fixed: {output_sub_file}")
 
-    return sub_data, segment
+    return sub_data, segment, output_sub_file
 
 def _contextualize(sub_data: SSAFile, 
                    instruction: str, 
@@ -257,7 +257,7 @@ def _translate(sub_data: SSAFile,
         if output_sub_file.exists():
             logger.warning(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
-            return sub_data
+            return sub_data, output_sub_file
         
         partial_file = Path(output_root + ".partial.tr_custom.txt")
         start_index = min(segment)
@@ -267,7 +267,7 @@ def _translate(sub_data: SSAFile,
         if output_sub_file.exists():
             logger.warning(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
-            return sub_data
+            return sub_data, output_sub_file
 
         partial_file = Path(output_root + ".partial.en.txt")
         start_index = 0
@@ -281,7 +281,7 @@ def _translate(sub_data: SSAFile,
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Subtitles translated: {output_sub_file}")
 
-    return sub_data
+    return sub_data, output_sub_file
 
 def _pad(sub_data: SSAFile, 
             output_root: str,
@@ -301,7 +301,7 @@ def _pad(sub_data: SSAFile,
     if output_sub_file.exists():
         logger.warning(f"Subtitle padding skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
-        return sub_data
+        return sub_data, output_sub_file
 
     logger.debug(f"Padding subtitles... Output: {output_sub_file}")
     sub_data = sub_correction.apply_timing_standards(sub_data, max_lead_out_sec, max_lead_in_sec, max_cps, min_sec, segment)
@@ -309,7 +309,7 @@ def _pad(sub_data: SSAFile,
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Subtitles padded: {output_sub_file}")
 
-    return sub_data
+    return sub_data, output_sub_file
 
 def main():
     dotenv.load_dotenv()
@@ -474,11 +474,11 @@ def main():
         if not args.retranscribe:
             args.retranscribe = "auto"
         
-        sub_data, segment = _twopass(sub_data, audio_file, output_root, lang_from, segment)
+        sub_data, segment, sub_file = _twopass(sub_data, audio_file, output_root, lang_from, segment)
 
     # Fix mistimed segments
     if sub_data and (args.fix or args.auto_pilot):
-        sub_data, segment = _fix(sub_data, output_root, segment)
+        sub_data, segment, sub_file = _fix(sub_data, output_root, segment)
         
     # Translate subtitles
     if sub_data and (args.translate or args.auto_pilot):
@@ -486,19 +486,19 @@ def main():
             args.translate = "auto"
 
         context_data = _contextualize(sub_data, args.translate, output_root, websearch_model, lang_from, lang_to)            
-        sub_data = _translate(sub_data, context_data, output_root, model, lang_from, lang_to, segment)
-    
+        sub_data, sub_file = _translate(sub_data, context_data, output_root, model, lang_from, lang_to, segment)
+
+    # Add padding time to subtitles
+    if sub_data and (args.pad or args.auto_pilot):
+        sub_data, sub_file = _pad(sub_data, output_root, segment)
+
     # Write final subtitle file
     if sub_data and formats.is_sub(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
     
     if sub_data and formats.is_text(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
-
-    # Add padding time to subtitles
-    if sub_data and (args.pad or args.auto_pilot):
-        sub_data = _pad(sub_data, output_root, segment)
-
+        
     if audio_file and args.audio_to_video and formats.is_image(Path(args.audio_to_video)):
         name_defined: bool = formats.is_video(output_file)
         
