@@ -6,6 +6,7 @@ from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, T
 from pathlib import Path
 from io import BytesIO
 from itertools import groupby
+import json
 
 class ScribeProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -22,6 +23,10 @@ class ScribeProvider(TranscriptionProvider):
         with open(audio_file, 'rb') as f:
             audio_data: BytesIO = BytesIO(f.read())
 
+        segmented_json = {
+            "format": "segmented_json"
+        }
+
         transcription: SpeechToTextChunkResponseModel = self.client.speech_to_text.convert(
             file=audio_data,
             model_id=self.model,
@@ -30,6 +35,7 @@ class ScribeProvider(TranscriptionProvider):
             diarize=True,
             diarization_threshold=0.1,
             timestamps_granularity="word",
+            additional_formats= json.dumps([segmented_json]),
             request_options = {"timeout_in_seconds": 3600}
         )
         self.logger.debug(f"API response: {transcription.model_dump_json()}")
