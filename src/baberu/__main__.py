@@ -536,11 +536,8 @@ def main():
                 video_file = Path(hardcode_path)
             
         if video_file and sub_file:
-            name_defined: bool = formats.is_video(output_file)
-
-            if not name_defined:
+            if not formats.is_video(output_file):
                 output_file = video_file.with_stem(f"{video_file.stem}_subbed")
-
             av_utils.hardcode_subtitles(video_file, sub_file, output_file)
     
 
