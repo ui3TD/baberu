@@ -49,7 +49,7 @@ class WhisperProvider(TranscriptionProvider):
             logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
             raise ValueError
         
-        words_list: list[TranscriptionWord] = json_data["words"]
+        words_list: list[dict[str, Any]] = json_data["words"]
         
         # Convert to TranscribedWord objects
         transcribed_words = [
