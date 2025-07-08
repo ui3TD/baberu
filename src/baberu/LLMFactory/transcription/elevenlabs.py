@@ -16,7 +16,7 @@ class ScribeProvider(TranscriptionProvider):
             api_key=self.api_key,
         )
 
-    def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
+    def transcribe(self, audio_file: Path, **kwargs) -> str:
         self.logger.info(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
