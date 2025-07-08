@@ -6,6 +6,7 @@ from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, T
 from pathlib import Path
 from io import BytesIO
 from itertools import groupby
+from typing import Any
 import json
 
 class ScribeProvider(TranscriptionProvider):
@@ -15,7 +16,7 @@ class ScribeProvider(TranscriptionProvider):
             api_key=self.api_key,
         )
 
-    def transcribe(self, audio_file: Path, **kwargs) -> str:
+    def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
         self.logger.info(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
@@ -43,8 +44,7 @@ class ScribeProvider(TranscriptionProvider):
 
         return transcription.model_dump_json()
     
-    def parse(self, json_str: str) -> TranscriptionResult:
-        json_data = json.load(json_str)
+    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
         transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
         grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
         segments: list[TranscribedSegment] = []

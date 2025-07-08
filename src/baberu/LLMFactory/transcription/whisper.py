@@ -5,7 +5,7 @@ from openai.types.audio.transcription_word import TranscriptionWord
 from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 
 from pathlib import Path
-import json
+from typing import Any
 
 class WhisperProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -14,7 +14,7 @@ class WhisperProvider(TranscriptionProvider):
             api_key=self.api_key,
         )
 
-    def transcribe(self, audio_file: Path, **kwargs) -> str:
+    def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
 
         max_size = 25 * 1024 * 1024  # 25MB in bytes
         file_size = audio_file.stat().st_size
@@ -38,11 +38,10 @@ class WhisperProvider(TranscriptionProvider):
             timestamps_granularities=["word"],
             timeout = 3600
         )
-        self.logger.debug(f"API response: {transcription.model_dump_json()}")
-        return transcription.model_dump_json()
+        self.logger.debug(f"API response: {transcription.model_dump()}")
+        return transcription.model_dump()
 
-    def parse(self, json_str: str) -> TranscriptionResult:
-        json_data = json.load(json_str)
+    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
         transcription = TranscriptionVerbose.model_validate(json_data)
         
         words_list: list[TranscriptionWord] = transcription.words

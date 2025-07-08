@@ -36,15 +36,15 @@ class TranscriptionProvider(ABC):
         self.logger = logging.getLogger(__name__)
     
     @abstractmethod
-    def transcribe(self, audio_file: Path, **kwargs) -> str:
+    def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
         """
-        Transcribes an audio file and returns a json string received directly from the provider.
+        Transcribes an audio file and returns a Pydantic dict of the json received directly from the provider.
         """
         pass
     
     @abstractmethod
-    def parse(self, json_str: str) -> TranscriptionResult:
+    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
         """
-        Parses a transcription of an audio file as json string and returns a standardized TranscriptionResult object.
+        Parses a transcription of an audio file as a Pydantic dict and returns a standardized TranscriptionResult object.
         """
         pass
