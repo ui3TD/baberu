@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List
 import pydantic
 import logging
+from typing import Any
 
 class TranscribedWord(pydantic.BaseModel):
     text: str
@@ -35,8 +36,15 @@ class TranscriptionProvider(ABC):
         self.logger = logging.getLogger(__name__)
     
     @abstractmethod
-    def transcribe(self, audio_file: Path, **kwargs) -> TranscriptionResult:
+    def transcribe(self, audio_file: Path, **kwargs) -> str:
         """
-        Transcribes an audio file and returns a standardized TranscriptionResult object.
+        Transcribes an audio file and returns a json string received directly from the provider.
+        """
+        pass
+    
+    @abstractmethod
+    def parse(self, json_str: str) -> TranscriptionResult:
+        """
+        Parses a transcription of an audio file as json string and returns a standardized TranscriptionResult object.
         """
         pass
