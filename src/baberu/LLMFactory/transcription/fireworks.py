@@ -88,7 +88,7 @@ class FireworksProvider(TranscriptionProvider):
                 word_start = word_data.get('start', 0.0)
                 word_end = word_data.get('end', 0.0)
                 prev_speaker = speaker or word_data.get('speaker_id', "")
-                speaker = word_data.get('speaker_id', "")
+                speaker = word_data.get('speaker_id', "Default")
 
                 try:
                     # Find the word's position in the current segment's text
