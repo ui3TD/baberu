@@ -42,15 +42,17 @@ class TranscriptionProvider(ABC):
         """
         pass
     
+    @staticmethod
     @abstractmethod
-    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
+    def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         """
         Parses a transcription of an audio file as a Pydantic dict and returns a standardized TranscriptionResult object.
         """
         pass
     
+    @staticmethod
     @abstractmethod
-    def validate(self, json_data: dict[str, Any]) -> dict[str, Any]:
+    def validate(json_data: dict[str, Any]) -> dict[str, Any]:
         """
         Validates a transcript's json data as having the expected structure of the provider
         """

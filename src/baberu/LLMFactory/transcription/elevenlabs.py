@@ -44,7 +44,8 @@ class ScribeProvider(TranscriptionProvider):
 
         return transcription.model_dump_json()
     
-    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
+    @staticmethod
+    def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
         grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
         segments: list[TranscribedSegment] = []
@@ -72,6 +73,7 @@ class ScribeProvider(TranscriptionProvider):
         
         return TranscriptionResult(segments=segments)
     
-    def validate(self, json_data: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def validate(json_data: dict[str, Any]) -> dict[str, Any]:
         SpeechToTextChunkResponseModel.model_validate(json_data)
         return json_data

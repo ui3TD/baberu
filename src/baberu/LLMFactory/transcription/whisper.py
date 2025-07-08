@@ -41,7 +41,8 @@ class WhisperProvider(TranscriptionProvider):
         self.logger.debug(f"API response: {transcription.model_dump()}")
         return transcription.model_dump()
 
-    def parse(self, json_data: dict[str, Any]) -> TranscriptionResult:
+    @staticmethod
+    def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         transcription = TranscriptionVerbose.model_validate(json_data)
         
         words_list: list[TranscriptionWord] = transcription.words
@@ -62,6 +63,7 @@ class WhisperProvider(TranscriptionProvider):
         
         return TranscriptionResult(segments=[segment])
     
-    def validate(self, json_data: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def validate(json_data: dict[str, Any]) -> dict[str, Any]:
         TranscriptionVerbose.model_validate(json_data)
         return json_data
