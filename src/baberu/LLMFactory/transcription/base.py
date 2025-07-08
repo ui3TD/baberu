@@ -9,7 +9,7 @@ class TranscribedWord(pydantic.BaseModel):
     text: str
     start: float
     end: float
-    type: str = "text"
+    type: str = "word"
     speaker: str | None = None
     confidence: float | None = None
     
