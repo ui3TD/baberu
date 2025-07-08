@@ -23,8 +23,8 @@ class FireworksProvider(TranscriptionProvider):
                 data={
                     "model": self.model,
                     "vad_model": "whisperx-pyannet",
-                    "alignment_model": "tdnn_ffn",
-                    "preprocessing": "none",
+                    "alignment_model": "mms_fa",
+                    "preprocessing": "dynamic",
                     "language": lang,
                     "temperature": "0",
                     "timestamp_granularities": "word,segment",
