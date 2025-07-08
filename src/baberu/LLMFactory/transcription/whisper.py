@@ -54,9 +54,9 @@ class WhisperProvider(TranscriptionProvider):
         # Convert to TranscribedWord objects
         transcribed_words = [
             TranscribedWord(
-                text=word.word,
-                start=word.start or 0.0,
-                end=word.end or 0.0
+                text=word['word'],
+                start=word['start'] or 0.0,
+                end=word['end'] or 0.0
             )
             for word in words_list
         ]
