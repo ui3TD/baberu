@@ -49,13 +49,13 @@ class FireworksProvider(TranscriptionProvider):
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         logger = logging.getLogger(__name__)
         if "text" not in json_data:
-            logger.error("OpenAI JSON validation failed. Key 'text' does not exist.")
+            logger.error("Transcript JSON validation failed. Key 'text' does not exist.")
             raise ValueError
         if "segments" not in json_data:
-            logger.error("OpenAI JSON validation failed. Key 'segments' does not exist.")
+            logger.error("Transcript JSON validation failed. Key 'segments' does not exist.")
             raise ValueError
         if "words" not in json_data:
-            logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
+            logger.error("Transcript JSON validation failed. Key 'words' does not exist.")
             raise ValueError
         
         # Get the master lists of segments and all words
@@ -169,4 +169,14 @@ class FireworksProvider(TranscriptionProvider):
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
+        logger = logging.getLogger(__name__)
+        if "text" not in json_data:
+            logger.error("Transcript JSON validation failed. Key 'text' does not exist.")
+            raise ValueError
+        if "segments" not in json_data:
+            logger.error("Transcript JSON validation failed. Key 'segments' does not exist.")
+            raise ValueError
+        if "words" not in json_data:
+            logger.error("Transcript JSON validation failed. Key 'words' does not exist.")
+            raise ValueError
         return json_data
