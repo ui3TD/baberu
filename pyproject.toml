@@ -20,6 +20,7 @@ dependencies = [
     "langcodes>=3.5.0",
     "platformdirs>=4.2.0", 
     "pysubs2>=1.8.0",
+    "pydub>=0.25.0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",
     "yt_dlp>=2025.6.30"
