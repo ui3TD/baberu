@@ -1,4 +1,4 @@
-# Configuration for Baberu
+# Configuration for baberu
 working_dir: ""
 
 logging:
