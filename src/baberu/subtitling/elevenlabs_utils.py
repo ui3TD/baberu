@@ -9,79 +9,11 @@ import pysubs2
 
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.llm.base import LLMProvider
-from baberu.LLMFactory.transcription.base import TranscriptionProvider, TranscriptionResult, TranscribedSegment, TranscribedWord
+from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscribedSegment, TranscribedWord
 from baberu.constants import CONTINUE_FLAG
 from baberu.subtitling.types import SubtitleLine
 
 logger = logging.getLogger(__name__)
-
-def parse_elevenlabs_segmented(json_data: dict[str, Any],
-                    delimiters: str | list[str] = [],
-                    soft_delimiters: str | list[str] = [],
-                    soft_max_lines: int = 20,
-                    hard_max_lines: int = 50,
-                    hard_max_carryover: int = 10,
-                    model: str = "") -> SSAFile:
-    """Converts an ElevenLabs transcription dictionary to a subtitle file object.
-
-    This function processes word-level timestamp data, merges words into lines based
-    on delimiters and length constraints, and formats the result as an SSAFile object.
-
-    Args:
-        json_data (dict[str, Any]): The ElevenLabs transcription data.
-        delimiters (str | list[str]): Characters that force a line break.
-        soft_delimiters (str | list[str]): Characters that suggest a line break
-            when a line exceeds the soft length limit.
-        include_audio_events (bool): If True, includes audio events (e.g., [laughs])
-            in the subtitles.
-        soft_max_lines (int): The preferred maximum character length for a line.
-        hard_max_lines (int): The absolute maximum character length for a line before
-            a hard split is performed.
-        hard_max_carryover (int): The number of characters to carry to the next line
-            during a hard split.
-        model (str): The LLM model to use for intelligent line splitting.
-
-    Returns:
-        SSAFile: A pysubs2 SSAFile object containing the subtitles.
-    """
-    segments: list[dict[str, Any]] = json_data['segments']
-
-    all_lines: list[dict[str, Any]] = []
-    for segment in segments:
-        if 'words' not in segment:
-            continue
-
-        # Separate audio events and words
-        audio_events: list[dict[str, Any]] = []
-        words: list[dict[str, Any]] = []
-
-        for item in segment["words"]:
-            if item["type"] == "word":
-                words.append(item)
-
-        # Merge words into lines by delimiter
-        text_lines = _merge_words(words, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, model)
-
-        # Combine audio events and merged words, and sort by start time
-        combined_lines = sorted(audio_events + text_lines, key=lambda x: x["start"])
-
-        all_lines.extend(combined_lines)
-
-    # Create subtitle file objects
-    sub_file: SSAFile = SSAFile()
-
-    for line in all_lines:
-        event = SSAEvent(
-            start=pysubs2.time.times_to_ms(s=line.get("start", 0)),
-            end=pysubs2.time.times_to_ms(s=line.get("end", 0)),
-            text=line['text'],
-            style="Default"
-        )
-        sub_file.events.append(event)
-
-    logger.info(f"Converted {len(all_lines)} lines to ASS format")
-    return sub_file
-
 
 def write_transcript_json(json_data: dict[str, Any], 
                           output_file: Path) -> Path:
