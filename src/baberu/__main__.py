@@ -440,8 +440,6 @@ def main():
             raise IsADirectoryError
 
     environ.setdefault('BABERU_DIR', app_config['working_dir'])
-    environ.setdefault('GEMINI_API_KEY', app_config['keys']['gemini'])
-    environ.setdefault('ELEVENLABS_API_KEY', app_config['keys']['elevenlabs'])
 
     # Prepare ouput dir
     input_dir: Path = input_file.parent if input_file else None
