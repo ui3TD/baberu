@@ -121,8 +121,8 @@ def _delimit_segment(
 
         # Break on hard max limit
         if len(current_text) > hard_max_lines:
+            carryover_word_count = 0
             if model:
-                carryover_word_count = 0
                 try:
                     leading_space: str = current_text[:len(current_text) - len(current_text.lstrip())]
                     trailing_space: str = current_text[len(current_text.rstrip()):]
