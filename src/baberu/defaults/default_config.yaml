@@ -46,8 +46,3 @@ translation:
   server_retries: 20
   max_cont_lines: 5
   confirm_auto_context: true
-
-keys:
-  elevenlabs: ""
-  gemini: ""
-  openrouter: ""
