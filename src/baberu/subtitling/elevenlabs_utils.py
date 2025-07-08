@@ -292,7 +292,8 @@ def load_transcript_json(file_path: Path, provider: TranscriptionProvider) -> Tr
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             json_data: dict[str, Any] = json.load(f)
-        return provider.validate(json_data)
+        provider.validate(json_data)
+        return provider.parse(json_data)
     except FileNotFoundError:
         logger.error(f"Error: File '{file_path}' not found.")
         raise
@@ -311,7 +312,7 @@ def write_transcript_json(json_data: dict[str, Any],
     logger.info(f"Audio transcription saved to {output_file}")
     return output_file
 
-def parse_transcript(transcript: TranscriptionResult,
+def convert_transcript_to_subs(transcript: TranscriptionResult,
                     delimiters: str | list[str] = [],
                     soft_delimiters: str | list[str] = [],
                     soft_max_lines: int = 20,
