@@ -7,7 +7,6 @@ from pathlib import Path
 from io import BytesIO
 from itertools import groupby
 import json
-from typing import Any
 
 class ScribeProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
