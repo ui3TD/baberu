@@ -308,7 +308,7 @@ def write_transcript_json(json_data: dict[str, Any],
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"Audio transcription completed. JSON saved to {output_file}")
+    logger.info(f"Audio transcription saved to {output_file}")
     return output_file
 
 def parse_transcript(transcript: TranscriptionResult,
