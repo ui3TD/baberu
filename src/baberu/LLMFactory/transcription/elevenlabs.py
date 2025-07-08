@@ -1,5 +1,5 @@
 from elevenlabs.client import ElevenLabs
-from elevenlabs.types import SpeechToTextChunkResponseModel, SpeechToTextWordResponseModel
+from elevenlabs.types import SpeechToTextChunkResponseModel, SpeechToTextWordResponseModel, ExportOptions_SegmentedJson
 
 from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 
@@ -24,11 +24,6 @@ class ScribeProvider(TranscriptionProvider):
         with open(audio_file, 'rb') as f:
             audio_data: BytesIO = BytesIO(f.read())
 
-        segmented_json = {
-            "format": "segmented_json",
-            "segment_on_silence_longer_than_s": 3
-        }
-
         transcription: SpeechToTextChunkResponseModel = self.client.speech_to_text.convert(
             file=audio_data,
             model_id=self.model,
@@ -37,7 +32,11 @@ class ScribeProvider(TranscriptionProvider):
             diarize=True,
             diarization_threshold=0.1,
             timestamps_granularity="word",
-            additional_formats= json.dumps([segmented_json]),
+            additional_formats= [ExportOptions_SegmentedJson(
+                include_speakers=True,
+                include_timestamps=True,
+                segment_on_silence_longer_than_s=2.0
+            )],
             request_options = {"timeout_in_seconds": 3600}
         )
         self.logger.debug(f"API response: {transcription.model_dump_json()}")
