@@ -43,7 +43,7 @@ class WhisperProvider(TranscriptionProvider):
 
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
-        transcription = TranscriptionVerbose.model_validate(json_data)
+        transcription = TranscriptionVerbose.model_validate_json(json_data)
         
         words_list: list[TranscriptionWord] = transcription.words
         
