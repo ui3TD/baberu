@@ -14,7 +14,6 @@ from baberu.tools.file_utils import formats
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult
 
-APP_NAME: str = "baberu"
 app_config: dict[str, Any] = None
 logger: logging.Logger = None
 

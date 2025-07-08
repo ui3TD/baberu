@@ -1,5 +1,5 @@
 from baberu.tools import file_utils
-from baberu.__main__ import APP_NAME
+from baberu.constants import APP_NAME
 
 import platformdirs
 import yaml

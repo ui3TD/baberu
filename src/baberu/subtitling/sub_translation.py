@@ -7,7 +7,7 @@ from pysubs2 import SSAFile, SSAEvent
 
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.llm.base import LLMProvider
-from baberu.subtitling import elevenlabs_utils
+from baberu import constants
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ def translate(sub_file: SSAFile,
             batch_end: int = initial_batch_end 
             continues_added: int = 0
             while batch_end < ending_item and \
-                sub_file.events[batch_end - 1].text.endswith(elevenlabs_utils.CONTINUE_FLAG) and \
+                sub_file.events[batch_end - 1].text.endswith(constants.CONTINUE_FLAG) and \
                     continues_added < max_cont_lines:
                 # Expand batch end by one line
                 batch_end += 1
@@ -288,7 +288,7 @@ def write_lines(lines: list[str], output_file: Path) -> None:
 
 def _set_sys_prompt(lang_from: str, lang_to: str) -> str:
     """Creates the system prompt for the LLM translator role."""
-    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{elevenlabs_utils.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{elevenlabs_utils.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
+    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
     return prompt
 
 def _set_translate_prompt(previous_translations: list[str], 

@@ -10,13 +10,10 @@ import pysubs2
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.llm.base import LLMProvider
 from baberu.LLMFactory.transcription.base import TranscriptionProvider, TranscriptionResult, TranscribedSegment, TranscribedWord
+from baberu.constants import CONTINUE_FLAG
 from baberu.subtitling.types import SubtitleLine
 
 logger = logging.getLogger(__name__)
-
-CONTINUE_FLAG: str = "%%CONT%%"
-
-
 
 def parse_elevenlabs_segmented(json_data: dict[str, Any],
                     delimiters: str | list[str] = [],

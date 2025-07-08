@@ -1,4 +1,4 @@
-from baberu.__main__ import APP_NAME
+from baberu.constants import APP_NAME
 
 import platformdirs
 
