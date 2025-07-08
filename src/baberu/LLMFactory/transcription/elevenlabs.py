@@ -45,7 +45,7 @@ class ScribeProvider(TranscriptionProvider):
     
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
-        transcription = SpeechToTextChunkResponseModel.model_validate_json(json_data)
+        transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
 
         is_segmented_json = False
         formats_list = transcription.additional_formats or []
@@ -109,5 +109,5 @@ class ScribeProvider(TranscriptionProvider):
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
-        SpeechToTextChunkResponseModel.model_validate_json(json_data)
+        SpeechToTextChunkResponseModel.model_validate(json_data)
         return json_data
