@@ -303,9 +303,8 @@ def load_transcript_json(file_path: Path) -> TranscriptionResult:
         logger.error(f"Error loading file: {str(e)}")
         raise
     
-def write_transcript_json(transcript: TranscriptionResult, 
+def write_transcript_json(json_data: dict[str, Any], 
                           output_file: Path) -> Path:
-    json_data = transcript.model_dump()
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
