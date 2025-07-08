@@ -75,11 +75,11 @@ def _transcribe(audio_file: Path,
     else:
         logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
-        provider_response = transcript_provider.transcribe(audio_file, lang=lang)
-        elevenlabs_utils.write_transcript_json(provider_response, json_file)
+        json_data = transcript_provider.transcribe(audio_file, lang=lang)
+        elevenlabs_utils.write_transcript_json(json_data, json_file)
         logger.info(f"Audio transcribed: {json_file}")
 
-    transcript: TranscriptionResult = transcript_provider_type.parse(provider_response)
+    transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
     return transcript
 
 def _convert(transcript: TranscriptionResult,
