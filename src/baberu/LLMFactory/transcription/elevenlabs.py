@@ -46,29 +46,64 @@ class ScribeProvider(TranscriptionProvider):
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         transcription = SpeechToTextChunkResponseModel.model_validate_json(json_data)
-        grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
+
+        is_segmented_json = False
+        formats_list = json_data.get("additional_formats", [])
+        segmented_format = next((f for f in formats_list if f.get("requested_format") == "segmented_json"), None)
+        if segmented_format:
+            content_str = segmented_format.get("content")
+            if not content_str or not isinstance(content_str, str):
+                is_segmented_json = False
+            else:
+                is_segmented_json = True
+
         segments: list[TranscribedSegment] = []
-        for speaker_id, words_group in grouped_words:
-            words_list: list[SpeechToTextWordResponseModel] = list(words_group)
+
+        if is_segmented_json:
+            segmented_data = json.loads(content_str)
             
-            # Convert to TranscribedWord objects
-            transcribed_words = [
-                TranscribedWord(
-                    text=word.text,
-                    start=word.start or 0.0,
-                    end=word.end or 0.0,
-                    type=word.type,
-                    speaker=speaker_id or None,
-                    confidence=word.logprob or None
+            for segment_data in segmented_data.get("segments", []):
+                words_data_list = segment_data.get("words", [])
+                
+                transcribed_words = [
+                    TranscribedWord(
+                        text=word_data.get("text", ""),
+                        start=word_data.get("start", 0.0),
+                        end=word_data.get("end", 0.0),
+                        type=word_data.get("type", "word"),
+                        speaker=word_data.get("speaker_id"),
+                        confidence=word_data.get("logprob")
+                    )
+                    for word_data in words_data_list
+                ]
+                
+                segment = TranscribedSegment(
+                    words=transcribed_words
                 )
-                for word in words_list
-            ]
-            
-            segment = TranscribedSegment(
-                words=transcribed_words,
-                speaker=speaker_id
-            )
-            segments.append(segment)
+                segments.append(segment)
+        else:   
+            grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
+            segments: list[TranscribedSegment] = []
+            for speaker_id, words_group in grouped_words:
+                words_list: list[SpeechToTextWordResponseModel] = list(words_group)
+                
+                # Convert to TranscribedWord objects
+                transcribed_words = [
+                    TranscribedWord(
+                        text=word.text,
+                        start=word.start or 0.0,
+                        end=word.end or 0.0,
+                        type=word.type,
+                        speaker=speaker_id or None,
+                        confidence=word.logprob or None
+                    )
+                    for word in words_list
+                ]
+                
+                segment = TranscribedSegment(
+                    words=transcribed_words
+                )
+                segments.append(segment)
         
         return TranscriptionResult(segments=segments)
     
