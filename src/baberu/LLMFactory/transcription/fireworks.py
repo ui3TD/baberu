@@ -80,12 +80,15 @@ class FireworksProvider(TranscriptionProvider):
             reconstructed_words: list[TranscribedWord] = []
             
             text_cursor = 0
+            speaker = None
 
             # 2. Inner loop
             for word_data in words_for_segment:
                 word_text = word_data.get('word', "")
                 word_start = word_data.get('start', 0.0)
                 word_end = word_data.get('end', 0.0)
+                prev_speaker = speaker or word_data.get('speaker_id', "")
+                speaker = word_data.get('speaker_id', "")
 
                 try:
                     # Find the word's position in the current segment's text
@@ -122,12 +125,13 @@ class FireworksProvider(TranscriptionProvider):
                                 leading_word = TranscribedWord(
                                     text=punctuation_to_append,
                                     start=prev_end_time,
-                                    end=prev_end_time
+                                    end=prev_end_time,
+                                    speaker=prev_speaker
                                 )
                                 reconstructed_words.append(leading_word)
                             
                             leading_word = TranscribedWord(
-                                text=char, start=prev_end_time, end=prev_end_time, type="spacing"
+                                text=char, start=prev_end_time, end=prev_end_time, type="spacing",speaker=prev_speaker
                             )
                             reconstructed_words.append(leading_word)
                             punctuation_to_append = ""
@@ -135,15 +139,16 @@ class FireworksProvider(TranscriptionProvider):
                             punctuation_to_append += char
 
                     punctuation_time = word_start if space_present else prev_end_time
+                    punctuation_speaker = speaker if space_present else prev_speaker
                     if punctuation_to_append:
                         leading_word = TranscribedWord(
-                            text=punctuation_to_append, start=punctuation_time, end=punctuation_time
+                            text=punctuation_to_append, start=punctuation_time, end=punctuation_time, speaker=punctuation_speaker
                         )
                         reconstructed_words.append(leading_word)
 
                 # 4. Add the actual timed word
                 timed_word = TranscribedWord(
-                    text=word_text, start=word_start, end=word_end
+                    text=word_text, start=word_start, end=word_end, speaker=speaker
                 )
                 reconstructed_words.append(timed_word)
 
@@ -157,7 +162,7 @@ class FireworksProvider(TranscriptionProvider):
                 last_word_end_time = reconstructed_words[-1].end if reconstructed_words else segment_end
                 
                 trailing_word = TranscribedWord(
-                    text=trailing_text, start=last_word_end_time, end=last_word_end_time
+                    text=trailing_text, start=last_word_end_time, end=last_word_end_time, speaker=speaker
                 )
                 reconstructed_words.append(trailing_word)
             
