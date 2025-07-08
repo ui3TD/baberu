@@ -223,6 +223,12 @@ class WhisperProvider(TranscriptionProvider):
                         f"Word overlaps segment timing: Word '{word_text}' overlaps with Segment '{segment_text}' at position {text_cursor}. Skipping."
                     )
                     continue
+                
+                if text_cursor == 0 and word_start_pos > 3:
+                    logger.debug(
+                        f"Skipping first word '{word_text}' due to large start position mismatch ({word_start_pos}) in segment '{segment_text}'."
+                    )
+                    continue
 
                 # 3. Capture any leading punctuation and whitespace
                 if word_start_pos > text_cursor:
