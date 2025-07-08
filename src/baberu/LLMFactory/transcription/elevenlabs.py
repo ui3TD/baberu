@@ -1,5 +1,5 @@
 from elevenlabs.client import ElevenLabs
-from elevenlabs.types import SpeechToTextChunkResponseModel, SpeechToTextWordResponseModel, ExportOptions_SegmentedJson
+from elevenlabs.types import SpeechToTextChunkResponseModel, SpeechToTextWordResponseModel, ExportOptions_SegmentedJson, AdditionalFormatResponseModel
 
 from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 
@@ -48,10 +48,10 @@ class ScribeProvider(TranscriptionProvider):
         transcription = SpeechToTextChunkResponseModel.model_validate_json(json_data)
 
         is_segmented_json = False
-        formats_list = json_data.get("additional_formats", [])
-        segmented_format = next((f for f in formats_list if f.get("requested_format") == "segmented_json"), None)
+        formats_list = transcription.additional_formats or []
+        segmented_format = next((f for f in formats_list if f.requested_format == "segmented_json"), None)
         if segmented_format:
-            content_str = segmented_format.get("content")
+            content_str = segmented_format.content
             if not content_str or not isinstance(content_str, str):
                 is_segmented_json = False
             else:
