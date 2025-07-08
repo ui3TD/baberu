@@ -63,9 +63,9 @@ class WhisperProvider(TranscriptionProvider):
 
         # 1. Main loop: Iterate through each segment from the JSON
         for segment_data in segments_data:
-            segment_text = segment_data['text'].strip() # Use the segment's specific text
-            segment_start = segment_data['start']
-            segment_end = segment_data['end']
+            segment_text = segment_data.get("text","").strip() # Use the segment's specific text
+            segment_start = segment_data.get("start", 0.0)
+            segment_end = segment_data.get("end", 0.0)
 
             # Filter the master word list to get words belonging to the current segment
             # A word belongs to a segment if its start time is within the segment's time range.
@@ -80,7 +80,7 @@ class WhisperProvider(TranscriptionProvider):
 
             # 2. Inner loop
             for word_data in words_for_segment:
-                word_text = word_data['word']
+                word_text = word_data.get('word', "")
                 word_start = word_data.get('start', 0.0)
                 word_end = word_data.get('end', 0.0)
 
