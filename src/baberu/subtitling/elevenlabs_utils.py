@@ -283,7 +283,7 @@ def parse_elevenlabs(el_data: SpeechToTextChunkResponseModel,
     logger.info(f"Converted {len(all_lines)} lines to ASS format")
     return sub_file
 
-def load_transcript_json(file_path: Path) -> TranscriptionResult:
+def load_transcript_json(file_path: Path, provider: TranscriptionProvider) -> TranscriptionResult:
     """Loads JSON data from a file.
 
     Args:
@@ -292,7 +292,7 @@ def load_transcript_json(file_path: Path) -> TranscriptionResult:
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             json_data: dict[str, Any] = json.load(f)
-        return TranscriptionResult.model_validate(json_data)
+        return provider.validate(json_data)
     except FileNotFoundError:
         logger.error(f"Error: File '{file_path}' not found.")
         raise
