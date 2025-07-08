@@ -6,6 +6,8 @@ from pysubs2 import SSAFile
 
 from baberu.subtitling import sub_utils, elevenlabs_utils, sub_correction
 from baberu.tools import av_utils
+from baberu.LLMFactory.factory import AIToolFactory
+from baberu.LLMFactory.transcription.base import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +151,11 @@ def _transcribe_segment(subtitles: SSAFile,
     
     # Transcribe the audio segment
     try:
-        json_data = elevenlabs_utils.transcribe_audio(temp_audio_path, lang, transcription_model)
-        new_subtitles: SSAFile = elevenlabs_utils.parse_elevenlabs(json_data, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
+        transcript_provider_type = AIToolFactory.get_transcription_provider_type(transcription_model)
+        transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+        json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
+        transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+        new_subtitles: SSAFile = elevenlabs_utils.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
         new_subtitles.shift(ms=start_time_ms)
         sub_utils.write(new_subtitles, output_file)
 

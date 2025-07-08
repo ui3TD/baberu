@@ -2,6 +2,7 @@ from typing import Any
 from pathlib import Path
 from os import environ
 import logging
+import json
 
 import dotenv
 from pysubs2 import SSAFile
@@ -10,6 +11,8 @@ from baberu.setup import config_setup, logging_setup, args_setup
 from baberu.subtitling import elevenlabs_utils, sub_correction, sub_translation, sub_twopass, sub_utils
 from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
+from baberu.LLMFactory.factory import AIToolFactory
+from baberu.LLMFactory.transcription.base import TranscriptionResult
 
 APP_NAME: str = "baberu"
 app_config: dict[str, Any] = None
@@ -56,29 +59,31 @@ def _extract(video_file: Path,
 def _transcribe(audio_file: Path,
                 output_root: str, 
                 output_file: Path | None,
-                lang: str) -> dict[str, Any]:
-    """Transcribes an audio file into a JSON object."""
+                lang: str) -> TranscriptionResult:
+    """Transcribes an audio file into a TranscriptionResult object."""
     config = app_config['transcription']
     model: str = config['elevenlabs_model']
 
-    json_data: dict[str, Any] = None
-
     json_file: Path = output_file or Path(output_root + ".json")
-    json_data: dict[str, Any] = None 
+    transcript: TranscriptionResult = None 
+    transcript_provider_type = AIToolFactory.get_transcription_provider_type(model)
 
     if json_file.exists():
         logger.warning(f"Transcription skipped. File already exists: {json_file}")
-        json_data = elevenlabs_utils.load_elevenlabs_json(json_file)
-        return json_data 
-        
-    logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
-    json_data = elevenlabs_utils.transcribe_audio(audio_file, lang, model)
-    elevenlabs_utils.write_elevenlabs_json(json_data, json_file)
-    logger.info(f"Audio transcribed: {json_file}")
-        
-    return json_data
+        with open(json_file, 'r', encoding='utf-8') as f:
+            json_data = json.load(f)
+        json_data = transcript_provider_type.validate(json_data)
+    else:
+        logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
+        transcript_provider = AIToolFactory.get_transcription_provider(model)
+        provider_response = transcript_provider.transcribe(audio_file, lang=lang)
+        elevenlabs_utils.write_transcript_json(provider_response, json_file)
+        logger.info(f"Audio transcribed: {json_file}")
 
-def _convert(json_data: dict[str, Any],
+    transcript: TranscriptionResult = transcript_provider_type.parse(provider_response)
+    return transcript
+
+def _convert(transcript: TranscriptionResult,
              output_root: str) -> SSAFile:
     """Converts a transcription JSON object to a subtitle file."""
     config = app_config['parsing']
@@ -98,7 +103,7 @@ def _convert(json_data: dict[str, Any],
         return sub_data
 
     logger.debug(f"Converting transcription JSON to subtitles: {output_sub_file}")
-    sub_data = elevenlabs_utils.parse_elevenlabs(json_data, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
+    sub_data = elevenlabs_utils.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Transcription converted: {output_sub_file}")
 
@@ -335,7 +340,7 @@ def main():
     image_file: Path | None = None
     json_file: Path | None = None
     sub_file: Path | None = None
-    json_data: dict[str, Any] | None = None
+    transcript_data: TranscriptionResult | None = None
     sub_data: SSAFile | None = None
     context_data: str | None = None
     segment: list[int] = []
@@ -349,6 +354,7 @@ def main():
     lang_from = args.lang_from or app_config['transcription']['default_lang_from']
     lang_to = args.lang_to or app_config['translation']['default_lang_to']
     websearch_model = app_config['translation']['websearch_model']
+    transcription_model = app_config['transcription']['elevenlabs_model']
 
     # Set output file
     output_file: Path | None = None
@@ -464,17 +470,21 @@ def main():
     # Transcribe
     if audio_file and (args.speech_to_text or args.auto_pilot):
         force_write: bool = formats.is_json(output_file)
-        json_data = _transcribe(audio_file, output_root, 
+        transcript_data = _transcribe(audio_file, output_root, 
                                 output_file if force_write else None,
                                 lang_from)
 
     # Load transcription
     if json_file:
-        json_data = elevenlabs_utils.load_elevenlabs_json(json_file)
+        with open(json_file, 'r', encoding='utf-8') as f:
+            json_data = json.load(f)
+        transcript_provider_type = AIToolFactory.get_transcription_provider_type(transcription_model)
+        json_data = transcript_provider_type.validate(json_data)
+        transcript_data = transcript_provider_type.parse(json_data)
     
     # Create subtitles
-    if json_data and (args.convert or args.auto_pilot):
-        sub_data = _convert(json_data, output_root)
+    if transcript_data and (args.convert or args.auto_pilot):
+        sub_data = _convert(transcript_data, output_root)
 
     # Load subtitles
     if sub_file:
