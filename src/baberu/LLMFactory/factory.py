@@ -1,8 +1,8 @@
 from os import environ
 import logging
 
-from .llm import base as llm_base, gemini, claude, grok, openai, deepseek, openrouter
-from .image import base as image_base, imagen, openai
+from .llm import base as llm_base, gemini, claude, grok, openai as llm_openai, deepseek, openrouter
+from .image import base as image_base, imagen, openai as image_openai
 from .transcription import base as transcription_base, elevenlabs, whisper
 
 class AIToolFactory:
@@ -55,13 +55,13 @@ class AIToolFactory:
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
-            return openai.OProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
+            return llm_openai.OProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "gpt" in model_name.lower():
             api_key = environ.get("OPENAI_API_KEY", "")
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
-            return openai.GPTProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
+            return llm_openai.GPTProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "deepseek" in model_name.lower():
             api_key = environ.get("DEEP_API_KEY", "")
             if not api_key:
@@ -100,7 +100,7 @@ class AIToolFactory:
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
-            return openai.OpenAIProvider(api_key=api_key, model=model_name)
+            return image_openai.OpenAIProvider(api_key=api_key, model=model_name)
         else:
             raise ValueError(f"Could not determine image generation provider for model: {model_name}")
 
