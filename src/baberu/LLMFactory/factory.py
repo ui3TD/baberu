@@ -135,3 +135,13 @@ class AIToolFactory:
             return whisper.WhisperProvider(api_key=api_key, model=model_name)
         else:
             raise ValueError(f"Could not determine transcription provider for model: {model_name}")
+        
+    @staticmethod
+    def get_transcription_provider_type(model_name: str) -> type[transcription_base.TranscriptionProvider]:
+        """Returns the provider type."""
+        if 'scribe' in model_name.lower():
+            return elevenlabs.ScribeProvider
+        elif 'whisper' in model_name.lower():
+            return whisper.WhisperProvider
+        else:
+            raise ValueError(f"Could not determine transcription provider for model: {model_name}")
