@@ -6,6 +6,7 @@ from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, T
 
 from pathlib import Path
 from typing import Any
+import logging
 
 class WhisperProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -35,7 +36,7 @@ class WhisperProvider(TranscriptionProvider):
             model=self.model,
             language=lang,
             response_format="verbose_json",
-            timestamps_granularities=["word"],
+            timestamp_granularities=["word"],
             timeout = 3600
         )
         self.logger.debug(f"API response: {transcription.model_dump()}")
@@ -43,9 +44,12 @@ class WhisperProvider(TranscriptionProvider):
 
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
-        transcription = TranscriptionVerbose.model_validate_json(json_data)
+        logger = logging.getLogger(__name__)
+        if not "words" in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
+            raise ValueError
         
-        words_list: list[TranscriptionWord] = transcription.words
+        words_list: list[TranscriptionWord] = json_data["words"]
         
         # Convert to TranscribedWord objects
         transcribed_words = [
@@ -65,5 +69,10 @@ class WhisperProvider(TranscriptionProvider):
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
-        TranscriptionVerbose.model_validate_json(json_data)
+        logger = logging.getLogger(__name__)
+        if not "words" in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
+            raise ValueError
+        
+        logger.warning("OpenAI JSON validation bypassed due to low reliability.")
         return json_data
