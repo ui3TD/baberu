@@ -36,7 +36,7 @@ class WhisperProvider(TranscriptionProvider):
             model=self.model,
             language=lang,
             response_format="verbose_json",
-            timestamp_granularities=["word"],
+            timestamp_granularities=["word", "segment"],
             timeout = 3600
         )
         self.logger.debug(f"API response: {transcription.model_dump()}")
@@ -45,7 +45,13 @@ class WhisperProvider(TranscriptionProvider):
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         logger = logging.getLogger(__name__)
-        if not "words" in json_data:
+        if "text" not in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'text' does not exist.")
+            raise ValueError
+        if "segments" not in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'segments' does not exist.")
+            raise ValueError
+        if "words" not in json_data:
             logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
             raise ValueError
         
@@ -70,7 +76,13 @@ class WhisperProvider(TranscriptionProvider):
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
         logger = logging.getLogger(__name__)
-        if not "words" in json_data:
+        if "text" not in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'text' does not exist.")
+            raise ValueError
+        if "segments" not in json_data:
+            logger.error("OpenAI JSON validation failed. Key 'segments' does not exist.")
+            raise ValueError
+        if "words" not in json_data:
             logger.error("OpenAI JSON validation failed. Key 'words' does not exist.")
             raise ValueError
         
