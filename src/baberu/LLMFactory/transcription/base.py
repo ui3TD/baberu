@@ -15,7 +15,6 @@ class TranscribedWord(pydantic.BaseModel):
     
 class TranscribedSegment(pydantic.BaseModel):
     words: List[TranscribedWord]
-    speaker: str | None = None
 
 class TranscriptionResult(pydantic.BaseModel):
     segments: List[TranscribedSegment]
