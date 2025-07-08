@@ -71,3 +71,7 @@ class ScribeProvider(TranscriptionProvider):
             segments.append(segment)
         
         return TranscriptionResult(segments=segments)
+    
+    def validate(self, json_data: dict[str, Any]) -> dict[str, Any]:
+        SpeechToTextChunkResponseModel.model_validate(json_data)
+        return json_data

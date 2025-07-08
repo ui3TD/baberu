@@ -61,3 +61,7 @@ class WhisperProvider(TranscriptionProvider):
         )
         
         return TranscriptionResult(segments=[segment])
+    
+    def validate(self, json_data: dict[str, Any]) -> dict[str, Any]:
+        TranscriptionVerbose.model_validate(json_data)
+        return json_data
