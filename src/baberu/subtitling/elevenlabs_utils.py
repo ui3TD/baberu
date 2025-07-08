@@ -1,17 +1,10 @@
 import json
-from io import BytesIO
 from pysubs2 import SSAFile, SSAEvent
-from os import environ
 from typing import Any
 from pathlib import Path
-from itertools import groupby
 import re
 import logging
 
-from elevenlabs.types import SpeechToTextChunkResponseModel
-
-from elevenlabs.client import ElevenLabs
-import dotenv
 import pysubs2
 
 from baberu.LLMFactory.factory import AIToolFactory
@@ -208,7 +201,7 @@ def _delimit_segment(
                 sys_prompt = "Provide only the requested text without commentary or special formatting."
                 user_prompt = f"Split the following text into two lines at a logical point without modifications to the text or punctuation:\n{trimmed_current_text}"
 
-                client = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
+                client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
                 api_response = client.prompt(user_prompt)
 
                 lines = api_response.strip().split('\n')
