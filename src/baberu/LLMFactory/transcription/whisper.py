@@ -65,5 +65,5 @@ class WhisperProvider(TranscriptionProvider):
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
-        TranscriptionVerbose.model_validate(json_data)
+        TranscriptionVerbose.model_validate_json(json_data)
         return json_data

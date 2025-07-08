@@ -41,7 +41,7 @@ class ScribeProvider(TranscriptionProvider):
         )
         self.logger.debug(f"API response: {transcription.model_dump_json()}")
 
-        return transcription.model_dump_json()
+        return transcription.model_dump()
     
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
@@ -74,5 +74,5 @@ class ScribeProvider(TranscriptionProvider):
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:
-        SpeechToTextChunkResponseModel.model_validate(json_data)
+        SpeechToTextChunkResponseModel.model_validate_json(json_data)
         return json_data
