@@ -10,7 +10,7 @@ class TranscribedWord(pydantic.BaseModel):
     start: float
     end: float
     type: str = "word"
-    speaker: str | None = None
+    speaker: str = "Default"
     confidence: float | None = None
     
 class TranscribedSegment(pydantic.BaseModel):
