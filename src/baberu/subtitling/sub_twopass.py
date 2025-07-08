@@ -121,7 +121,7 @@ def _transcribe_segment(subtitles: SSAFile,
                         hard_max_lines: int,
                         hard_max_carryover: int,
                         transcription_model: str,
-                        parsing_model: str) -> SSAFile:
+                        parsing_model: str | None) -> SSAFile:
     """Processes a single segment by extracting audio, transcribing, and splicing."""
     # Calculate start and end times for the segment
     start_time_ms = subtitles.events[min(segment)].start

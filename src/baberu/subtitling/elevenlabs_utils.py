@@ -29,7 +29,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
                     soft_max_lines: int = 20,
                     hard_max_lines: int = 50,
                     hard_max_carryover: int = 10,
-                    model: str = "") -> SSAFile:
+                    model: str | None = "") -> SSAFile:
     """Converts a transcription object to a subtitle file object.
 
     This function processes word-level timestamp data, merges words into lines based
@@ -73,10 +73,10 @@ def _delimit_segment(
         soft_max_lines: int,
         hard_max_lines: int,
         hard_max_carryover: int,
-        model: str
+        model: str | None
         ) -> list[SubtitleLine]:
     """Merges a list of word objects into formatted subtitle lines."""
-
+    
     sub_lines: list[SubtitleLine] = []
     current_words: list[TranscribedWord] = []
 
@@ -121,42 +121,55 @@ def _delimit_segment(
 
         # Break on hard max limit
         if len(current_text) > hard_max_lines:
-            carryover_word_count = 0
-            try:
-                leading_space: str = current_text[:len(current_text) - len(current_text.lstrip())]
-                trailing_space: str = current_text[len(current_text.rstrip()):]
-                trimmed_current_text: str = current_text.strip()
+            if model:
+                carryover_word_count = 0
+                try:
+                    leading_space: str = current_text[:len(current_text) - len(current_text.lstrip())]
+                    trailing_space: str = current_text[len(current_text.rstrip()):]
+                    trimmed_current_text: str = current_text.strip()
 
-                sys_prompt = "Provide only the requested text without commentary or special formatting."
-                user_prompt = f"Split the following text into two lines at a logical point without modifications to the text or punctuation:\n{trimmed_current_text}"
+                    sys_prompt = "Provide only the requested text without commentary or special formatting."
+                    user_prompt = f"Split the following text into two lines at a logical point without modifications to the text or punctuation:\n{trimmed_current_text}"
 
-                client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
-                api_response = client.prompt(user_prompt)
+                    client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
+                    api_response = client.prompt(user_prompt)
 
-                lines = api_response.strip().split('\n')
-                line1_text = leading_space + lines[0].strip()
-                line2_text = lines[1].strip() + trailing_space
+                    lines = api_response.strip().split('\n')
+                    line1_text = leading_space + lines[0].strip()
+                    line2_text = lines[1].strip() + trailing_space
 
-                # Validate the API response
-                if len(lines) == 2 and current_text.startswith(line1_text) and current_text.endswith(line2_text):
-                    rebuilt_carryover_text = ""
+                    # Validate the API response
+                    if len(lines) == 2 and current_text.startswith(line1_text) and current_text.endswith(line2_text):
+                        rebuilt_carryover_text = ""
 
-                    # Reconstruct the second line from words to get an accurate word count
-                    for word_obj in reversed(current_words):
-                        rebuilt_carryover_text = word_obj.text + rebuilt_carryover_text
-                        carryover_word_count += 1
-                        if rebuilt_carryover_text.endswith(line2_text):
-                            break # Match found
+                        # Reconstruct the second line from words to get an accurate word count
+                        for word_obj in reversed(current_words):
+                            rebuilt_carryover_text = word_obj.text + rebuilt_carryover_text
+                            carryover_word_count += 1
+                            if rebuilt_carryover_text.endswith(line2_text):
+                                break # Match found
+                        else:
+                            # mismatch between the AI's split text and the source words.
+                            logger.warning(f"Warning: AI-split line did not match word objects: '{line2_text}'")
+                            raise ValueError
                     else:
-                        # mismatch between the AI's split text and the source words.
-                        logger.warning(f"Warning: AI-split line did not match word objects: '{line2_text}'")
+                        logger.warning(f"Warning: AI returned invalid value.")
                         raise ValueError
-                else:
-                    logger.warning(f"Warning: AI returned invalid value.")
-                    raise ValueError
 
-            except Exception as e:
-                logger.warning(f"Warning: AI returned error: '{e}'\nAPI response: {api_response}\nOriginal:    {current_text}")
+                except Exception as e:
+                    logger.warning(f"Warning: AI returned error: '{e}'\nAPI response: {api_response}\nOriginal:    {current_text}")
+                    # Fall back to character count method
+                    carryover_chars = 0
+                    
+                    # Count words to carry over
+                    for i in range(len(current_words) - 1, -1, -1):
+                        word_text = current_words[i].text
+                        if carryover_chars + len(word_text) <= hard_max_carryover:
+                            carryover_chars += len(word_text)
+                            carryover_word_count += 1
+                        else:
+                            break
+            else:
                 # Fall back to character count method
                 carryover_chars = 0
                 
