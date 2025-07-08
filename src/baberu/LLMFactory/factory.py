@@ -147,7 +147,9 @@ class AIToolFactory:
         """Returns the provider type."""
         if 'scribe' in model_name.lower():
             return elevenlabs.ScribeProvider
-        elif 'whisper' in model_name.lower():
+        elif 'whisper-1' in model_name.lower():
             return whisper.WhisperProvider
+        elif 'whisper-v3' in model_name.lower():
+            return fireworks.FireworksProvider
         else:
             raise ValueError(f"Could not determine transcription provider for model: {model_name}")
