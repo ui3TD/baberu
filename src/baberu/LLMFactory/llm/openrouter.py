@@ -29,7 +29,7 @@ class OpenRouterProvider(LLMProvider):
         if prefill:
             prompt_messages.append({"role": "assistant", "content": prefill})
             
-        self.logger.info(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
+        self.logger.debug(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
 
         completion = self.client.responses.create(
             model=self.model,

@@ -22,7 +22,7 @@ class GeminiProvider(LLMProvider):
         prompt_messages = [
             Content(parts=[Part(text=user_prompt)], role="user")
             ]
-        self.logger.info(f"Prompt messages:\n{user_prompt}")
+        self.logger.debug(f"Prompt messages:\n{user_prompt}")
         
         safety_settings = [
             SafetySetting(

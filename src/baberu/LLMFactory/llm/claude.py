@@ -37,7 +37,7 @@ class ClaudeProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
                 {"role": "assistant", "content": prefill}
                 ]
-        self.logger.info(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
+        self.logger.debug(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
 
         completion = self.client.messages.create(
             model=self.model,

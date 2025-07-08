@@ -26,7 +26,7 @@ class DeepseekProvider(LLMProvider):
             {"role": "user", "content": user_prompt},
             {"role": "assistant", "content": prefill, "prefix": True}
         ]
-        self.logger.info(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
+        self.logger.debug(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
         completion = self.client.responses.create(
             model=self.model,
             input=prompt_messages
