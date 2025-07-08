@@ -3,7 +3,7 @@ import logging
 
 from .llm import base as llm_base, gemini, claude, grok, openai as llm_openai, deepseek, openrouter
 from .image import base as image_base, imagen, openai as image_openai
-from .transcription import base as transcription_base, elevenlabs, whisper
+from .transcription import base as transcription_base, elevenlabs, whisper, fireworks
 
 class AIToolFactory:
     """A factory class for creating instances of AI tool providers."""
@@ -127,12 +127,18 @@ class AIToolFactory:
                 logger.error("ElevenLabs API key not found.")
                 raise ValueError("ElevenLabs API key not found.")
             return elevenlabs.ScribeProvider(api_key=api_key, model=model_name)
-        elif 'whisper' in model_name.lower():
+        elif 'whisper-1' in model_name.lower():
             api_key = environ.get("OPENAI_API_KEY")
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
             return whisper.WhisperProvider(api_key=api_key, model=model_name)
+        elif 'whisper-v3' in model_name.lower():
+            api_key = environ.get("FIREWORKS_API_KEY")
+            if not api_key:
+                logger.error("FIREWORKS API key not found.")
+                raise ValueError("FIREWORKS API key not found.")
+            return fireworks.FireworksProvider(api_key=api_key, model=model_name)
         else:
             raise ValueError(f"Could not determine transcription provider for model: {model_name}")
         
