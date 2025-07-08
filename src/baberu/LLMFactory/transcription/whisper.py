@@ -71,7 +71,7 @@ class WhisperProvider(TranscriptionProvider):
             # A word belongs to a segment if its start time is within the segment's time range.
             words_for_segment = [
                 word for word in all_words_data 
-                if word.get('start', -1) >= segment_start and word.get('start', -1) < segment_end
+                if word.get('start', -1) >= segment_start and word.get('start', -1) <= segment_end
             ]
 
             reconstructed_words: list[TranscribedWord] = []
@@ -90,10 +90,10 @@ class WhisperProvider(TranscriptionProvider):
                 except ValueError:
                     # It's possible for whisper to have slight transcription mismatches.
                     # We'll log it and skip the punctuation handling for this gap.
-                    logger.error(
-                        f"Data inconsistency: Word '{word_text}' not found in segment text '{segment_text}' after position {text_cursor}."
+                    logger.debug(
+                        f"Word overlaps segment timing: Word '{word_text}' overlaps with Segment '{segment_text}' at position {text_cursor}. Skipping."
                     )
-                    raise
+                    continue
 
                 # 3. Capture any leading punctuation and whitespace
                 if word_start_pos > text_cursor:
