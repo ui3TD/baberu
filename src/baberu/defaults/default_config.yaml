@@ -11,8 +11,8 @@ transcription:
   default_lang_from: "ja"
 
 parsing:
-  delimiters: "。？！-"
-  soft_delimiters: "、"
+  delimiters: ["。","？","！","-","?","!"]
+  soft_delimiters: ["、"," ","　"]
   soft_max_lines: 20
   hard_max_lines: 50
   hard_max_carryover: 15

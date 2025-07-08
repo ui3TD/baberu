@@ -24,8 +24,8 @@ def write_transcript_json(json_data: dict[str, Any],
     return output_file
 
 def convert_transcript_to_subs(transcript: TranscriptionResult,
-                    delimiters: str | list[str] = [],
-                    soft_delimiters: str | list[str] = [],
+                    delimiters: list[str] = [],
+                    soft_delimiters: list[str] = [],
                     soft_max_lines: int = 20,
                     hard_max_lines: int = 50,
                     hard_max_carryover: int = 10,
@@ -68,8 +68,8 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
 
 def _delimit_segment(
         segment: TranscribedSegment,
-        delimiters: str | list[str],
-        soft_delimiters: str | list[str],
+        delimiters: list[str],
+        soft_delimiters: list[str],
         soft_max_lines: int,
         hard_max_lines: int,
         hard_max_carryover: int,

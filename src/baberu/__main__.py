@@ -86,8 +86,8 @@ def _convert(transcript: TranscriptionResult,
              output_root: str) -> SSAFile:
     """Converts a transcription JSON object to a subtitle file."""
     config = app_config['parsing']
-    delimiters: str = config['delimiters']
-    soft_delimiters: str = config['soft_delimiters']
+    delimiters: list[str] = config['delimiters']
+    soft_delimiters: list[str] = config['soft_delimiters']
     soft_max_lines: int = config['soft_max_lines']
     hard_max_lines: int = config['hard_max_lines']
     hard_max_carryover: int = config['hard_max_carryover']
@@ -118,8 +118,8 @@ def _twopass(sub_data: SSAFile,
     parsing_config = app_config['parsing']
     mistiming_config = app_config['mistimed_segs']
     transcription_model: str = transcription_config['elevenlabs_model']
-    delimiters: str = parsing_config['delimiters']
-    soft_delimiters: str = parsing_config['soft_delimiters']
+    delimiters: list[str] = parsing_config['delimiters']
+    soft_delimiters: list[str] = parsing_config['soft_delimiters']
     soft_max_lines: int = parsing_config['soft_max_lines']
     hard_max_lines: int = parsing_config['hard_max_lines']
     hard_max_carryover: int = parsing_config['hard_max_carryover']
