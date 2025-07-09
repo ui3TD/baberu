@@ -18,7 +18,8 @@ class TranscribedSegment(pydantic.BaseModel):
 
 class TranscriptionResult(pydantic.BaseModel):
     segments: List[TranscribedSegment]
-    # You can add other metadata here if needed
+    language: str | None = None
+    duration: float | None = None
 
 class TranscriptionProvider(ABC):
     """Abstract base class for all transcription providers."""
