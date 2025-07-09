@@ -79,13 +79,15 @@ def _transcribe(audio_file: Path,
         max_size = transcript_provider.max_size_bytes
         file_size = audio_file.stat().st_size
         if max_size and file_size > max_size:
-            json_data = transcript_chunked.transcribe_in_chunks(audio_file, transcript_provider, lang=lang)
+            transcript = transcript_chunked.transcribe_in_chunks(audio_file, transcript_provider, lang=lang)
+            json_data = type(transcript_provider).to_provider_format(transcript)
         else:
             json_data = transcript_provider.transcribe(audio_file, lang=lang)
+            transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+
         transcript_conversion.write_transcript_json(json_data, json_file)
         logger.info(f"Audio transcribed: {json_file}")
 
-    transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
     return transcript
 
 def _convert(transcript: TranscriptionResult,
