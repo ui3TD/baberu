@@ -22,7 +22,7 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
     *   **Translation (LLMs):** Google Gemini, Anthropic Claude, OpenAI GPT, Grok, Deepseek, and various models via OpenRouter.
 *   **Targeted Processing:** Apply fixes, translations, or re-transcription to a specific range of lines with the `--lines` flag.
 *   **Output Options:**
-    *   Generate a final `.ass` file.
+    *   Generate a final subtitles file in any common format (`--output`).
     *   Create a video from an audio file and a static image (`--audio-to-video`).
     *   Burn subtitles directly onto a video (`--hardcode`).
 
