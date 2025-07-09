@@ -444,6 +444,7 @@ def main():
     input_dir: Path = input_file.parent if input_file else None
     output_dir: Path = Path(args.directory or environ.get("BABERU_DIR") or input_dir or Path.cwd())
     output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Output directory set to {output_dir.resolve()}")
     
     # Download
     if url:
