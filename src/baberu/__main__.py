@@ -399,7 +399,7 @@ def main():
                 raise ValueError
             audio_file = retrans_path
 
-    if args.translate or args.auto_pilot:
+    if args.translate:
         if args.translate == "auto" or args.auto_pilot:
             pass
         else:
