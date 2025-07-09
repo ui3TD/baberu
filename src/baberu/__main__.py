@@ -439,9 +439,8 @@ def main():
             logger.error(f"Audio-to-Video image file cannot be a directory: {args.translate}")
             raise IsADirectoryError
 
-    environ.setdefault('BABERU_DIR', app_config['working_dir'])
-
     # Prepare ouput dir
+    environ.setdefault('BABERU_DIR', app_config['working_dir'])
     input_dir: Path = input_file.parent if input_file else None
     output_dir: Path = Path(args.directory or environ.get("BABERU_DIR") or input_dir or Path.cwd())
     output_dir.mkdir(parents=True, exist_ok=True)
