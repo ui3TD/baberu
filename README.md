@@ -8,16 +8,16 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 
 ## Features
 
-*   **Versatile Input:** Accepts media URLs, local video/audio files, ElevenLabs JSON transcripts, or existing subtitle files (`.srt`, `.ass`, `.vtt`).
+*   **Versatile Input:** Accepts media URLs, local video/audio files, JSON transcripts, or existing subtitle files (`.srt`, `.ass`, `.vtt`).
 *   **Modular Workflow:** Activate specific processing stages (download, extract, transcribe, convert, fix, translate) via command-line flags.
 *   **Autopilot Mode:** A single `--auto-pilot` flag to run the entire standard pipeline from media to translated and refined subtitles.
 *   **Automated Audio Extraction:** Extracts audio (defaults to `.opus`) from video sources.
-*   **AI-Powered Transcription:** Utilizes ElevenLabs API for speech-to-text.
+*   **AI-Powered Transcription:** Utilizes various APIs for speech-to-text, including ElevenLabs, OpenAI (Whisper), and Fireworks AI (Whisper-v3).
 *   **Subtitle Generation:** Converts transcriptions into timed subtitles (default: `.ass`).
 *   **Accuracy Enhancement (Two-Pass):** Optionally re-transcribes low-confidence segments for improved accuracy.
 *   **Automated Timing Correction:** Applies heuristics to fix common subtitle timing issues.
 *   **Timing Refinement:** Pads subtitle timings to meet readability standards (CPS, lead-in/out).
-*   **Contextual Translation:** Translates subtitles using Google Gemini, leveraging auto-generated or provided context. Supports partial progress saving.
+*   **Contextual Translation:** Translates subtitles using a wide range of LLMs, including Google Gemini, Anthropic Claude, OpenAI GPT, Grok, Deepseek, and models available via OpenRouter. Leverages auto-generated or provided context. Supports partial progress saving.
 *   **Targeted Processing:** Apply fixes, re-transcription, or translation to a specific range of lines using the `--lines` flag.
 *   **Final Output Options:**
     *   Burn subtitles directly onto a video (`--hardcode`).
@@ -30,12 +30,46 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 1.  **Python:** Python 3.8 or higher recommended.
 2.  **FFmpeg:** Required for audio extraction and potential media processing. Ensure `ffmpeg` is installed and accessible in your system's PATH.
 3.  **API Keys:**
-    *   **ElevenLabs API Key:** Required for the transcription step (`--speech-to-text`).
-    *   **Google Gemini API Key:** Required for context generation and translation (`--translate`).
-    *   It is recommended to set these as environment variables:
+    `baberu` integrates with various AI services. You only need to set up the keys for the services you intend to use. It is recommended to set these as environment variables.
+
+    **Transcription Providers (for `--speech-to-text` and `--retranscribe`):**
+    *   **ElevenLabs:** For models containing `scribe`.
         ```bash
         export ELEVENLABS_API_KEY="your_elevenlabs_api_key"
-        export GEMINI_API_KEY="your_google_gemini_api_key"
+        ```
+    *   **OpenAI:** For models containing `whisper-1`.
+        ```bash
+        export OPENAI_API_KEY="your_openai_api_key"
+        ```
+    *   **Fireworks AI:** For models containing `whisper-v3`.
+        ```bash
+        export FIREWORKS_API_KEY="your_fireworks_ai_api_key"
+        ```
+
+    **Language Model (LLM) Providers (for `--translate`, optionally `--convert` and `--retranscribe`):**
+    *   **Google Gemini:** For models containing `gemini`.
+        ```bash
+        export GEMINI_API_KEY="your_google_api_key"
+        ```
+    *   **OpenAI:** For models containing `gpt`, `o1`, `o3`, or `o4`.
+        ```bash
+        export OPENAI_API_KEY="your_openai_api_key"
+        ```
+    *   **Anthropic:** For models containing `claude`.
+        ```bash
+        export ANTHROPIC_API_KEY="your_anthropic_api_key"
+        ```
+    *   **xAI:** For models containing `grok`.
+        ```bash
+        export XAI_API_KEY="your_xai_api_key"
+        ```
+    *   **Deepseek:** For models containing `deepseek`.
+        ```bash
+        export DEEP_API_KEY="your_deepseek_api_key"
+        ```
+    *   **OpenRouter:** For any model specified in `creator/model` format (e.g., `mistralai/mistral-7b-instruct`).
+        ```bash
+        export OPENROUTER_API_KEY="your_openrouter_api_key"
         ```
 
 ## Installation
