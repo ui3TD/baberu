@@ -192,7 +192,7 @@ def translate(sub_file: SSAFile,
     finally:
         duration: float = time.perf_counter() - start_time
         duration_minutes, duration_seconds = divmod(int(duration), 60)
-        logger.info(f"Translation ran for {duration_minutes} min {duration_seconds} s")
+        logger.debug(f"Translation ran for {duration_minutes} min {duration_seconds} s")
 
     return translated_lines
 
@@ -350,7 +350,7 @@ def _print_progress(elapsed_time: float,
 
     # Display progress
     remaining_minutes, remaining_seconds = divmod(int(remaining_time), 60)
-    logger.info(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s")
+    print(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s")
     return
 
 def _log_response(prompt: str,
