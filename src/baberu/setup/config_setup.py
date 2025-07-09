@@ -60,8 +60,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
                 shutil.copy(default_path, user_config_path)
         except (FileNotFoundError, PermissionError) as e:
             config_logger.warning(
-                f"Could not create user config file ({e}). "
-                "Loading packaged default as a temporary fallback."
+                f"Could not create user config file ({e}). Loading packaged default as a temporary fallback."
             )
             # 4. Fallback to loading the packaged default directly
             try:
