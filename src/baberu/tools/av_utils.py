@@ -24,7 +24,7 @@ def download(url: str,
     Returns:
         The path to the downloaded file.
     """
-    print(f"Downloading from {url}...")
+    logger.debug(f"Downloading from {url}...")
     
     # Configure output template
     if download_directory:
@@ -37,7 +37,7 @@ def download(url: str,
 
     # Configure yt-dlp options
     ydl_opts: dict[str, Any] = {
-        'format': 'bestaudio*+worstvideo/best',
+        'format': 'bestaudio+worstvideo/best',
         'outtmpl': output_template,
         'retries': 500,
         'quiet': False,
@@ -50,7 +50,7 @@ def download(url: str,
         info: dict[str, Any] = ydl.extract_info(url, download=True)
         video_file: Path = Path(ydl.prepare_filename(info))
     
-    print(f"Video downloaded successfully to {video_file}")
+    logger.debug(f"Video downloaded successfully to {video_file}")
     return video_file
 
 def extract_audio(video_file: Path,
@@ -65,7 +65,7 @@ def extract_audio(video_file: Path,
     Returns:
         The path to the extracted audio file.
     """
-    print(f"Extracting audio from {video_file}...")
+    logger.debug(f"Extracting audio from {video_file}...")
 
     if not output_file:
         codec_name = get_audio_codec(video_file)
@@ -84,10 +84,10 @@ def extract_audio(video_file: Path,
             .output(str(output_file), acodec='copy', vn=None)
             .run(quiet=False, overwrite_output=False)
         )
-        print(f"Audio extracted successfully to {output_file}")
+        logger.debug(f"Audio extracted successfully to {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        print(f"Error extracting audio: {str(e)}")
+        logger.error(f"Error extracting audio: {str(e)}")
         raise
 
 def get_audio_codec(media_file: Path) -> str | None:
@@ -99,16 +99,22 @@ def get_audio_codec(media_file: Path) -> str | None:
     Returns:
         The codec name as a string, or None if no audio stream is found.
     """
-    probe_result = mediainfo(str(media_file))
-    
-    audio_stream = next((stream for stream in probe_result.get('streams', [])
-                         if stream.get('codec_type') == 'audio'), None)
+    probe_result = mediainfo(str(media_file)) 
+    logger.debug(f"Probed {media_file}: {probe_result}")
 
-    if not audio_stream:
-        return None
-    
-    codec_name = audio_stream.get('codec_name')
-    return codec_name
+    # Case 1: The result is a dictionary containing a 'streams' list
+    if 'streams' in probe_result:
+        audio_stream = next((stream for stream in probe_result.get('streams', [])
+                             if stream.get('codec_type') == 'audio'), None)
+        if audio_stream:
+            return audio_stream.get('codec_name')
+
+    # Case 2: The result is a single flat dictionary representing a stream
+    elif probe_result.get('codec_type') == 'audio':
+        return probe_result.get('codec_name')
+
+    # If neither case matches, no audio stream was found.
+    return None
 
 def cut_audio(audio_file: Path, 
               start_time_sec: float, 
@@ -142,7 +148,7 @@ def cut_audio(audio_file: Path,
         
         return output_path
     except Exception as e:
-        print(f"Error extracting audio segment with pydub: {e}")
+        logger.error(f"Error extracting audio segment with pydub: {e}")
         raise
 
 def hardcode_subtitles(video_file: Path,
@@ -158,7 +164,7 @@ def hardcode_subtitles(video_file: Path,
     Returns:
         The path to the video with hardcoded subtitles.
     """
-    print(f"Hardcoding subtitles from {subtitle_file} into {video_file}...")
+    logger.debug(f"Hardcoding subtitles from {subtitle_file} into {video_file}...")
 
     # Hardcode subtitles using ffmpeg with h264 encoding
     try:
@@ -184,10 +190,10 @@ def hardcode_subtitles(video_file: Path,
             )
             .run(quiet=False, overwrite_output=False)
         )
-        print(f"Subtitles hardcoded successfully to {output_file}")
+        logger.info(f"Subtitles hardcoded successfully to {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        print(f"Error hardcoding subtitles: {str(e)}")
+        logger.error(f"Error hardcoding subtitles: {str(e)}")
         raise
 
 def audio_to_video(image_file: Path,
@@ -203,7 +209,7 @@ def audio_to_video(image_file: Path,
     Returns:
         The path to the created video file.
     """
-    print(f"Creating video '{output_file.name}' from image '{image_file.name}' and audio '{audio_file.name}'...")
+    logger.debug(f"Creating video '{output_file.name}' from image '{image_file.name}' and audio '{audio_file.name}'...")
 
     try:
         # Define the input streams
@@ -225,8 +231,8 @@ def audio_to_video(image_file: Path,
             )
             .run(quiet=False, overwrite_output=True)
         )
-        print(f"Video created successfully at {output_file}")
+        logger.info(f"Video created successfully at {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        print(f"Error creating video: {e.stderr}")
+        logger.error(f"Error creating video: {e.stderr}")
         raise

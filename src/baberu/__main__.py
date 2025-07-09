@@ -39,7 +39,7 @@ def _extract(video_file: Path,
 
     codec_name = av_utils.get_audio_codec(video_file)
     if not codec_name:
-        logger.error("No audio codec found for direct copy extraction.")
+        logger.error(f"No audio codec found for direct copy extraction of {video_file}")
         raise ValueError(
             f"No audio codec found for direct copy extraction."
         )
