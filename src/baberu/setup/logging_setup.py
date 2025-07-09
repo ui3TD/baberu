@@ -36,7 +36,7 @@ def setup_logging(
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    logging.info(f"Console logging configured at level {console_level.upper()}.")
+    logging.debug(f"Console logging configured at level {console_level.upper()}.")
 
     if log_to_file:
         if not log_dir:
