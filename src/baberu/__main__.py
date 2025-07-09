@@ -9,10 +9,11 @@ from pysubs2 import SSAFile
 
 from baberu.setup import config_setup, logging_setup, args_setup
 from baberu.subtitling import sub_correction, sub_translation, sub_twopass, sub_utils
-from baberu.tools import av_utils, file_utils, transcript_utils
+from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult
+from baberu.transcription import transcript_conversion
 
 app_config: dict[str, Any] = None
 logger: logging.Logger = None
@@ -76,7 +77,7 @@ def _transcribe(audio_file: Path,
         logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
         json_data = transcript_provider.transcribe(audio_file, lang=lang)
-        transcript_utils.write_transcript_json(json_data, json_file)
+        transcript_conversion.write_transcript_json(json_data, json_file)
         logger.info(f"Audio transcribed: {json_file}")
 
     transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
@@ -102,7 +103,7 @@ def _convert(transcript: TranscriptionResult,
         return sub_data
 
     logger.debug(f"Converting transcription JSON to subtitles: {output_sub_file}")
-    sub_data = transcript_utils.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
+    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Transcription converted: {output_sub_file}")
 

@@ -252,3 +252,4 @@ def _clean_subtitle_line(line: SubtitleLine) -> SubtitleLine:
 
     line.text = line_text
     return line
+
