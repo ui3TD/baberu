@@ -63,7 +63,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
         )
         sub_file.events.append(event)
 
-    logger.info(f"Converted {len(all_lines)} lines to ASS format")
+    logger.debug(f"Converted {len(all_lines)} lines to ASS format")
     return sub_file
 
 def _delimit_segment(
