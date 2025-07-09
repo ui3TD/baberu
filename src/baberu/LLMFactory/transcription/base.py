@@ -33,7 +33,7 @@ class TranscriptionProvider(ABC):
         self.api_key = api_key
         self.model = model
         self.logger = logging.getLogger(__name__)
-        self.max_size_bytes: int = None
+        self.max_size_bytes: int | None = None
     
     @abstractmethod
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
@@ -41,7 +41,7 @@ class TranscriptionProvider(ABC):
         Transcribes an audio file and returns a Pydantic dict of the json received directly from the provider.
         """
         pass
-    
+
     @staticmethod
     @abstractmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
@@ -56,4 +56,18 @@ class TranscriptionProvider(ABC):
         """
         Validates a transcript's json data as having the expected structure of the provider
         """
+        pass
+
+
+class WritableTranscriptionProvider(TranscriptionProvider):
+    """
+    An ABC for providers that ALSO support converting a standard transcript
+    back into the provider's specific format.
+    """
+    def __init__(self, api_key: str, model: str):
+        super().__init__(api_key, model)
+
+    @staticmethod
+    @abstractmethod
+    def to_provider_format(transcript: TranscriptionResult) -> dict[str, Any]:
         pass

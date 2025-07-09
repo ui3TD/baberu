@@ -2,13 +2,13 @@ from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.audio.transcription_word import TranscriptionWord
 
-from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
+from .base import TranscriptionResult, TranscribedWord, TranscribedSegment, WritableTranscriptionProvider
 
 from pathlib import Path
 from typing import Any
 import logging
 
-class WhisperProvider(TranscriptionProvider):
+class WhisperProvider(WritableTranscriptionProvider):
     def __init__(self, api_key: str, model: str):
         super().__init__(api_key, model)
         self.client: OpenAI = OpenAI(
@@ -41,6 +41,60 @@ class WhisperProvider(TranscriptionProvider):
         )
         self.logger.debug(f"OpenAI API response: {transcription.model_dump()}")
         return transcription.model_dump()
+
+    @staticmethod
+    def to_provider_format(transcript: TranscriptionResult) -> dict[str, Any]:
+        """
+        Transforms the structured transcription result into the required JSON schema (dict).
+        
+        This method reconstructs the flat-list format with separate 'segments' and 'words'
+        keys, similar to common transcription API responses.
+        """
+        all_words_json = []
+        all_segments_json = []
+        full_text_parts = []
+        
+        for i, segment_obj in enumerate(transcript.segments):
+            if not segment_obj.words:
+                continue
+
+            # Create the segment dictionary for the JSON output
+            segment_text = segment_obj.text
+            all_segments_json.append({
+                "id": i,
+                "start": segment_obj.start,
+                "end": segment_obj.end,
+                "text": segment_text,
+            })
+            full_text_parts.append(segment_text)
+
+            # Create word dictionaries for the JSON output
+            for word_obj in segment_obj.words:
+                # The word dict in the final JSON often uses the key 'word' for the text
+                word_dict = {
+                    "word": word_obj.text,
+                    "start": word_obj.start,
+                    "end": word_obj.end,
+                }
+                if word_obj.confidence is not None:
+                    word_dict["confidence"] = word_obj.confidence
+                all_words_json.append(word_dict)
+
+        total_duration = all_segments_json[-1]['end'] if all_segments_json else 0
+        
+        return {
+            "text": " ".join(full_text_parts).strip(),
+            "segments": all_segments_json,
+            "words": all_words_json,
+            "language": transcript.language,
+            "duration": total_duration,
+            "task": "transcribe",
+            "usage": {
+                "duration": total_duration,
+                "type": "duration",
+                "seconds": int(round(total_duration))
+            }
+        }
 
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
