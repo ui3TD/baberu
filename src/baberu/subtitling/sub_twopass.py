@@ -77,12 +77,69 @@ def transcribe_segments(subtitles: SSAFile,
     Returns:
         SSAFile: The modified subtitle file with re-transcribed segments.
     """
+    if not segments:
+        return subtitles
+
+    # Fetch transcription providers
+    transcript_provider_type = AIToolFactory.get_transcription_provider_type(transcription_model)
+    transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+
+    # Process segments in reverse order to avoid index shifting issues when splicing
     for segment in sorted(segments, key=lambda g: g[0], reverse=True):
         segment = sorted(segment)
-        subtitles = _transcribe_segment(subtitles, segment, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
-    
-    if segments:
-        logger.info(f"Processed {len(segments)} segments using two-pass transcription")
+
+        # Calculate start and end times for the segment
+        start_time_ms = subtitles.events[min(segment)].start
+        end_time_ms = subtitles.events[max(segment)].end
+        
+        output_file: Path = audio_file.with_suffix(f".{start_time_ms}-{end_time_ms}.ass")
+
+        # If a cached transcription for this exact segment exists, use it
+        if output_file.exists():
+            new_subtitles = SSAFile.load(output_file)
+            subtitles = sub_utils.splice(subtitles, segment, new_subtitles)
+            continue  # Proceed to the next segment
+
+        # Convert times to seconds for ffmpeg
+        start_time_sec = start_time_ms / 1000.0
+        end_time_sec = end_time_ms / 1000.0
+        duration_sec = end_time_sec - start_time_sec
+        
+        # Create a temporary file for the audio segment
+        with tempfile.NamedTemporaryFile(suffix='.oga', delete=False) as temp_audio:
+            temp_audio_path: Path = Path(temp_audio.name)
+
+        # Cut the audio segment using ffmpeg
+        try:
+            av_utils.cut_audio(audio_file, start_time_sec, duration_sec, temp_audio_path)
+        except Exception as e:
+            logger.error(f"Failed to cut audio for segment starting at {start_time_ms}ms: {e}")
+            if temp_audio_path.exists():
+                Path.unlink(temp_audio_path)
+            continue # Skip this segment and proceed to the next
+
+        # Transcribe the audio segment and splice the results
+        try:
+            json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
+            transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+            new_subtitles: SSAFile = transcript_utils.convert_transcript_to_subs(
+                transcript, delimiters, soft_delimiters, soft_max_lines, 
+                hard_max_lines, hard_max_carryover, parsing_model
+            )
+            
+            new_subtitles.shift(ms=start_time_ms)
+            sub_utils.write(new_subtitles, output_file)  # Cache the result
+
+            subtitles = sub_utils.splice(subtitles, segment, new_subtitles)
+        except Exception as e:
+            logger.error(f"Error during transcription for segment starting at {start_time_ms}ms: {e}")
+            raise # Stop the entire process on a critical error
+        finally:
+            # Ensure the temporary audio file is always deleted
+            if temp_audio_path.exists():
+                Path.unlink(temp_audio_path)
+
+    logger.info(f"Processed {len(segments)} segments using two-pass transcription")
     return subtitles
 
 def pad_segments(subtitles: SSAFile, segments: list[list[int]]) -> list[list[int]]:
@@ -110,63 +167,6 @@ def pad_segments(subtitles: SSAFile, segments: list[list[int]]) -> list[list[int
         padded_segments.append(modified_segment)
            
     return padded_segments
-
-def _transcribe_segment(subtitles: SSAFile, 
-                        segment: list[int], 
-                        audio_file: Path,
-                        lang: str,
-                        delimiters: list[str],
-                        soft_delimiters: list[str],
-                        soft_max_lines: int,
-                        hard_max_lines: int,
-                        hard_max_carryover: int,
-                        transcription_model: str,
-                        parsing_model: str | None) -> SSAFile:
-    """Processes a single segment by extracting audio, transcribing, and splicing."""
-    # Calculate start and end times for the segment
-    start_time_ms = subtitles.events[min(segment)].start
-    end_time_ms = subtitles.events[max(segment)].end
-    
-    output_file: Path = audio_file.with_suffix(f".{start_time_ms}-{end_time_ms}.ass")
-
-    if output_file.exists():
-        new_subtitles = SSAFile.load(output_file)
-        return sub_utils.splice(subtitles, segment, new_subtitles)
-
-    # Convert to seconds for ffmpeg
-    start_time_sec = start_time_ms / 1000.0
-    end_time_sec = end_time_ms / 1000.0
-    duration_sec = end_time_sec - start_time_sec
-    
-    # Create temporary file for the audio segment
-    with tempfile.NamedTemporaryFile(suffix='.oga', delete=False) as temp_audio:
-        temp_audio_path: Path = Path(temp_audio.name)
-
-    # Cut audio segment using ffmpeg
-    try:
-        av_utils.cut_audio(audio_file, start_time_sec, duration_sec, temp_audio_path)
-    except Exception as e:
-        Path.unlink(temp_audio_path)
-        return subtitles
-    
-    # Transcribe the audio segment
-    try:
-        transcript_provider_type = AIToolFactory.get_transcription_provider_type(transcription_model)
-        transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
-        json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
-        transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
-        new_subtitles: SSAFile = transcript_utils.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
-        new_subtitles.shift(ms=start_time_ms)
-        sub_utils.write(new_subtitles, output_file)
-
-        new_subtitles = sub_utils.splice(subtitles, segment, new_subtitles)
-        return new_subtitles
-    except Exception as e:
-        logger.error(f"Error during transcription/conversion: {e}")
-        raise
-    finally:
-        if temp_audio_path.exists():
-            Path.unlink(temp_audio_path)
 
 def _print_preview(segments: list[list[int]], 
                    subtitles: SSAFile,
