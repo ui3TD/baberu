@@ -8,7 +8,7 @@ from baberu.subtitling import sub_utils, sub_correction
 from baberu.tools import av_utils
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult
-from baberu.transcription import transcript_conversion
+from baberu.transcription import transcript_conversion, transcript_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +119,15 @@ def transcribe_segments(subtitles: SSAFile,
                 Path.unlink(temp_audio_path)
             continue # Skip this segment and proceed to the next
 
+        max_size = transcript_provider.max_size_bytes
+        file_size = temp_audio_path.stat().st_size
+
         # Transcribe the audio segment and splice the results
         try:
-            json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
+            if max_size and file_size > max_size:
+                json_data = transcript_chunked.transcribe_in_chunks(temp_audio_path, transcript_provider, lang=lang)
+            else:
+                json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
             transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
             new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(
                 transcript, delimiters, soft_delimiters, soft_max_lines, 
