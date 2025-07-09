@@ -5,11 +5,8 @@ from openai.types.audio.transcription_word import TranscriptionWord
 from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 
 from pathlib import Path
-from typing import Any, Generator
-import tempfile
+from typing import Any
 import logging
-import math
-from pydub import AudioSegment
 
 class WhisperProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
