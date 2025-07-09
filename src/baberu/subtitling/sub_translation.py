@@ -232,9 +232,6 @@ def generate_context(subtitles: SSAFile, model: str, filename: str, lang_from: s
     """
     prompt: str = _set_context_prompt(subtitles, filename, lang_from, lang_to)
     
-    #DEBUG
-    logger.debug(f"Prompt: {prompt}")
-
     llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, 
                                                              system_prompt="You must follow prompt instructions.")
     try:
