@@ -125,10 +125,10 @@ def transcribe_segments(subtitles: SSAFile,
         # Transcribe the audio segment and splice the results
         try:
             if max_size and file_size > max_size:
-                json_data = transcript_chunked.transcribe_in_chunks(temp_audio_path, transcript_provider, lang=lang)
+                transcript = transcript_chunked.transcribe_in_chunks(temp_audio_path, transcript_provider, lang=lang)
             else:
                 json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
-            transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+                transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
             new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(
                 transcript, delimiters, soft_delimiters, soft_max_lines, 
                 hard_max_lines, hard_max_carryover, parsing_model
