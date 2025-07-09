@@ -36,7 +36,7 @@ def write(sub_file: SSAFile,
                 f.write(event.text + '\n')
     else:
         sub_file.save(output_file, encoding='utf-8')
-    logger.info(f"Saved file to {output_file}")
+    logger.debug(f"Saved file to {output_file}")
     return output_file
 
 def splice(subtitles: SSAFile, 

@@ -444,7 +444,7 @@ def main():
     input_dir: Path = input_file.parent if input_file else None
     output_dir: Path = Path(args.directory or environ.get("BABERU_DIR") or input_dir or Path.cwd())
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Output directory set to {output_dir.resolve()}")
+    logger.debug(f"Output directory set to {output_dir.resolve()}")
     
     # Download
     if url:
@@ -473,6 +473,7 @@ def main():
 
     # Load transcription
     if json_file:
+        logger.info(f"Loading provided transcript JSON: {json_file.resolve()}")
         with open(json_file, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         transcript_provider_type = AIToolFactory.get_transcription_provider_type(transcription_model)
@@ -513,9 +514,11 @@ def main():
     # Write final subtitle file
     if sub_data and formats.is_sub(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
+        logger.info(f"Saved subtitles to: {output_file.resolve()}")
     
     if sub_data and formats.is_text(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
+        logger.info(f"Saved text file to: {output_file.resolve()}")
         
     if audio_file and image_file and args.audio_to_video:
         if formats.is_video(output_file):
@@ -524,6 +527,7 @@ def main():
             output_vid_file = audio_file.with_name(f"{audio_file.stem}_template.mp4")
         
         video_file = av_utils.audio_to_video(image_file, audio_file, output_vid_file)
+        logger.info(f"Created video file '{output_vid_file.resolve()}' from audio '{audio_file.resolve()}' and image '{image_file.resolve()}'")
 
     
     if args.hardcode:
@@ -545,6 +549,7 @@ def main():
             if not formats.is_video(output_file):
                 output_file = video_file.with_stem(f"{video_file.stem}_subbed")
             av_utils.hardcode_subtitles(video_file, sub_file, output_file)
+            logger.info(f"Hardcoded subtitles to '{output_file.resolve()}' from video '{video_file.resolve()}' and subtitles '{sub_file.resolve()}'")
     
 
 if __name__ == "__main__":
