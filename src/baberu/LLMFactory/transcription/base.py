@@ -33,6 +33,7 @@ class TranscriptionProvider(ABC):
         self.api_key = api_key
         self.model = model
         self.logger = logging.getLogger(__name__)
+        self.max_size_bytes: int = None
     
     @abstractmethod
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
