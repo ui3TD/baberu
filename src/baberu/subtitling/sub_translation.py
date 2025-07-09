@@ -133,10 +133,9 @@ def translate(sub_file: SSAFile,
                     try:                        
                         if is_openrouter_free:
                             last_api_call_time = time.perf_counter()
-                            
+                        
+                        logger.debug(f"Prompting Batch {current_batch}/{total_batches} (Lines {i+1}-{batch_end})")
                         translated_text = llm_client.prompt(prompt)
-                            
-                        _log_response(prompt, translated_text, processed_batches, total_batches, i, batch_end)
                         break
                     except KeyboardInterrupt:
                         logger.warning("\nTranslation aborted by user. Saving partial results...")
@@ -349,20 +348,6 @@ def _print_progress(elapsed_time: float,
     remaining_minutes, remaining_seconds = divmod(int(remaining_time), 60)
     print(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s")
     return
-
-def _log_response(prompt: str,
-                  response: str,
-                  current_batch: int, 
-                  total_batches: int, 
-                  start_item: int, 
-                  end_item: int) -> None:
-    """Logs a single LLM prompt and its response."""
-    logger.debug(f"=== Batch {current_batch}/{total_batches} (Lines {start_item+1}-{end_item}) ===\n")
-    logger.debug(f"PROMPT:\n{prompt}\n\n")
-    logger.debug(f"RESPONSE:\n{response}\n\n")
-    logger.debug("-" * 20 + "\n\n")
-    return
-
 
 def _is_numbered(lines: list[str]) -> bool:
     """Checks if a list of strings is formatted as a numbered list."""
