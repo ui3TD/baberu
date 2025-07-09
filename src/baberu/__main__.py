@@ -12,7 +12,7 @@ from baberu.subtitling import sub_correction, sub_translation, sub_utils
 from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
 from baberu.LLMFactory.factory import AIToolFactory
-from baberu.LLMFactory.transcription.base import TranscriptionResult
+from baberu.LLMFactory.transcription.base import TranscriptionResult, WritableTranscriptionProvider
 from baberu.transcription import transcript_conversion, transcript_segmented, transcript_chunked
 
 app_config: dict[str, Any] = None
@@ -79,6 +79,12 @@ def _transcribe(audio_file: Path,
         max_size = transcript_provider.max_size_bytes
         file_size = audio_file.stat().st_size
         if max_size and file_size > max_size:
+            if not isinstance(transcript_provider, WritableTranscriptionProvider):
+                logger.error(
+                    f"Provider ({model}) reported max_size_bytes but is not a "
+                    f"WritableTranscriptionProvider. It is a '{type(transcript_provider).__name__}'.")
+                raise TypeError
+            
             transcript = transcript_chunked.transcribe_in_chunks(audio_file, transcript_provider, lang=lang)
             json_data = type(transcript_provider).to_provider_format(transcript)
         else:
