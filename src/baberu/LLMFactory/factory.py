@@ -3,7 +3,7 @@ import logging
 
 from .llm import base as llm_base, gemini, claude, grok, openai as llm_openai, deepseek, openrouter
 from .image import base as image_base, imagen, openai as image_openai
-from .transcription import base as transcription_base, elevenlabs, whisper, fireworks
+from .transcription import base as transcription_base, elevenlabs, openai as transcription_openai, fireworks
 
 class AIToolFactory:
     """A factory class for creating instances of AI tool providers."""
@@ -132,7 +132,7 @@ class AIToolFactory:
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
-            return whisper.WhisperProvider(api_key=api_key, model=model_name)
+            return transcription_openai.WhisperProvider(api_key=api_key, model=model_name)
         elif 'whisper-v3' in model_name.lower():
             api_key = environ.get("FIREWORKS_API_KEY")
             if not api_key:
@@ -148,7 +148,7 @@ class AIToolFactory:
         if 'scribe' in model_name.lower():
             return elevenlabs.ScribeProvider
         elif 'whisper-1' in model_name.lower():
-            return whisper.WhisperProvider
+            return transcription_openai.WhisperProvider
         elif 'whisper-v3' in model_name.lower():
             return fireworks.FireworksProvider
         else:
