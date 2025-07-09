@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 import pydantic
 import logging
 from typing import Any
@@ -9,7 +9,7 @@ class TranscribedWord(pydantic.BaseModel):
     text: str
     start: float
     end: float
-    type: str = "word"
+    type: Literal["word", "audio_event", "spacing"] = "word"
     speaker: str = "Default"
     confidence: float | None = None
     
