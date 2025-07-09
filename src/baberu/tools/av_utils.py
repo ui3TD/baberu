@@ -4,8 +4,6 @@ import logging
 
 import yt_dlp
 import ffmpeg
-import subprocess
-import json
 from pydub import AudioSegment
 from pydub.utils import mediainfo
 
@@ -101,27 +99,21 @@ def get_audio_codec(media_file: Path) -> str | None:
     Returns:
         The codec name as a string, or None if no audio stream is found.
     """
-    command = [
-        'ffprobe',
-        '-v', 'quiet',
-        '-print_format', 'json',
-        '-show_streams',
-        '-select_streams', 'a:0', 
-        str(media_file)
-    ]
-    # Execute the command
-    result = subprocess.run(command, capture_output=True, text=True, check=True)
-    probe_data = json.loads(result.stdout)
-    logger.debug(f"Probed {media_file} for audio stream: {probe_data}")
+    logger.debug(f"Probing {media_file} for audio stream...")
+    try:
+        # Use ffmpeg.probe to get media information as a dictionary
+        probe_data = ffmpeg.probe(str(media_file), select_streams='a:0')
+        logger.debug(f"Probe data for {media_file}: {probe_data}")
 
-    # The result of the specific query is a dictionary with a 'streams' list
-    # that should contain exactly one item: the first audio stream.
-    if probe_data and 'streams' in probe_data and len(probe_data['streams']) > 0:
-        # Get the codec name from the first (and only) stream in the list
-        codec_name = probe_data['streams'][0].get('codec_name')
-        return codec_name
-    else:
-        return None
+        # The 'streams' list should contain the first audio stream
+        if probe_data and 'streams' in probe_data and len(probe_data['streams']) > 0:
+            codec_name = probe_data['streams'][0].get('codec_name')
+            return codec_name
+        else:
+            return None
+    except ffmpeg.Error as e:
+        logger.error(f"Error probing audio stream for {media_file}: {e.stderr.decode('utf-8')}")
+        raise
 
 def cut_audio(audio_file: Path, 
               start_time_sec: float, 
