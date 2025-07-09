@@ -39,7 +39,7 @@ def find_mistimed_lines(subtitles: SSAFile,
         if duration_seconds <= threshold:
             mistimed_subtitles.add(i)
     
-    logger.info(f"Found {len(mistimed_subtitles)} subtitle(s) with duration less than {threshold} seconds")
+    logger.debug(f"Found {len(mistimed_subtitles)} subtitle(s) with duration less than {threshold} seconds")
     if not mistimed_subtitles:
         return mistimed_subtitles
 
@@ -49,7 +49,7 @@ def find_mistimed_lines(subtitles: SSAFile,
     # Group consecutive short subtitles
     groups = find_mistimed_groups(mistimed_subtitles, grp_min_lines)
 
-    logger.info(f"Found {len(groups)} large mistimed groups with duration less than {threshold} seconds")
+    logger.debug(f"Found {len(groups)} large mistimed groups with duration less than {threshold} seconds")
     if not groups:
         return mistimed_subtitles
         
@@ -64,7 +64,7 @@ def find_mistimed_lines(subtitles: SSAFile,
             mistimed_subtitles.update(indices_backward)
             group.extend(indices_backward)
             group.sort()
-            logger.info(f"Extending group ({group[0] + 1}-{group[-1] + 1}) backward to line {min(indices_backward) + 1}")
+            logger.debug(f"Extending group ({group[0] + 1}-{group[-1] + 1}) backward to line {min(indices_backward) + 1}")
     
         # Expand forward
         indices_forward = _expand_mistimed_group(
@@ -75,7 +75,7 @@ def find_mistimed_lines(subtitles: SSAFile,
             mistimed_subtitles.update(indices_forward)
             group.extend(indices_forward)
             group.sort()
-            logger.info(f"Extending group ({group[0] + 1}-{group[-1] + 1}) forward to line {max(indices_forward) + 1}")
+            logger.debug(f"Extending group ({group[0] + 1}-{group[-1] + 1}) forward to line {max(indices_forward) + 1}")
         
         if not indices_backward and not indices_forward:
             logger.warning(f"Failed to extend group ({group[0] + 1}-{group[-1] + 1})")
@@ -166,7 +166,7 @@ def fix_mistimed_lines(subtitles: SSAFile,
             # Redistribute time with previous index
             subtitles = _redistribute_backward(subtitles, prev_idx, group)
 
-    logger.info(f"Extended subtitle durations using threshold of {threshold} s")
+    logger.debug(f"Extended subtitle durations using threshold of {threshold} s")
     return subtitles
 
 def remove_empty(subtitles: SSAFile,
@@ -194,7 +194,7 @@ def remove_empty(subtitles: SSAFile,
     
     removed_count = original_count - len(subtitles.events)
     if removed_count > 0:
-        logger.info(f"Removed {removed_count} empty subtitle(s).")
+        logger.debug(f"Removed {removed_count} empty subtitle(s).")
     return subtitles
 
 def apply_timing_standards(subtitles: SSAFile, 
@@ -305,9 +305,9 @@ def apply_timing_standards(subtitles: SSAFile,
                 modified_count += 1
 
     if modified_count > 0:
-        logger.info(f"Extended {modified_count} subtitle(s) to meet max CPS of {max_cps}")
+        logger.debug(f"Extended {modified_count} subtitle(s) to meet max CPS of {max_cps}")
     else:
-        logger.info(f"No subtitles required extension to meet max CPS of {max_cps}.")
+        logger.debug(f"No subtitles required extension to meet max CPS of {max_cps}.")
         
     return subtitles
 
@@ -340,7 +340,7 @@ def _merge_nearby_groups(mistimed_subtitles: set[int],
             merged_start = current_group_start # Starts with the first group
             merged_end = max(current_group_end, next_group_end) # Ends at the furthest point of either group
 
-            logger.info(f"Merging groups  {current_group_start + 1}-{current_group_end + 1} and {next_group_start + 1}-{next_group_end + 1} into {merged_start + 1}-{merged_end + 1}")
+            logger.debug(f"Merging groups  {current_group_start + 1}-{current_group_end + 1} and {next_group_start + 1}-{next_group_end + 1} into {merged_start + 1}-{merged_end + 1}")
 
             # Merge the groups
             merged_group = list(range(merged_start, merged_end + 1))
