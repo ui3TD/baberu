@@ -11,7 +11,7 @@ class FireworksProvider(TranscriptionProvider):
         super().__init__(api_key, model)
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
-        self.logger.info(f"Transcribing audio from {audio_file}...")
+        self.logger.debug(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
 
@@ -41,7 +41,7 @@ class FireworksProvider(TranscriptionProvider):
             print(f"Error: {transcription.status_code}", transcription.text)
             raise ConnectionAbortedError
         
-        self.logger.debug(f"API response: {transcription.json()}")
+        self.logger.debug(f"Fireworks API response: {transcription.json()}")
 
         return transcription.json()
     

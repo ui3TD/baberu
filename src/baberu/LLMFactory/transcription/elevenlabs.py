@@ -17,7 +17,7 @@ class ScribeProvider(TranscriptionProvider):
         )
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
-        self.logger.info(f"Transcribing audio from {audio_file}...")
+        self.logger.debug(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
         
@@ -39,7 +39,7 @@ class ScribeProvider(TranscriptionProvider):
             )],
             request_options = {"timeout_in_seconds": 3600}
         )
-        self.logger.debug(f"API response: {transcription.model_dump_json()}")
+        self.logger.debug(f"ElevenLabs API response: {transcription.model_dump_json()}")
 
         return transcription.model_dump()
     

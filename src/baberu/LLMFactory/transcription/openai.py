@@ -20,9 +20,7 @@ class WhisperProvider(WritableTranscriptionProvider):
 
         file_size = audio_file.stat().st_size
         
-        self.logger.debug(f"File size: {file_size / (1024 * 1024):.2f} MB")
-
-        self.logger.info(f"Transcribing audio from {audio_file}...")
+        self.logger.debug(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
         
@@ -39,7 +37,7 @@ class WhisperProvider(WritableTranscriptionProvider):
             timestamp_granularities=["word", "segment"],
             timeout = 3600
         )
-        self.logger.debug(f"OpenAI API response: {transcription.model_dump()}")
+        self.logger.debug(f"OpenAI API response: {transcription.model_dump_json()}")
         return transcription.model_dump()
 
     @staticmethod
