@@ -37,22 +37,7 @@ def transcribe_in_chunks(audio_file: Path, model: str, lang: str | None) -> dict
             "Ensure it is a valid audio format and ffmpeg is installed."
         ) from e
 
-    # Calculate average bytes per second to estimate duration for max_size
-    # Add a 5% safety margin to stay safely under the limit.
-    safe_max_size = max_size * 0.95 
-    avg_bytes_per_second = file_size / total_duration_s
-    
-    # This is the maximum duration a chunk can be to not exceed the size limit
-    max_duration_per_chunk_s = safe_max_size / avg_bytes_per_second
-    
-    # Now, create evenly distributed chunks
-    num_chunks = math.ceil(total_duration_s / max_duration_per_chunk_s)
-    chunk_duration_ms = math.ceil((total_duration_s / num_chunks) * 1000)
-    
-    logger.info(
-        f"Audio duration: {total_duration_s:.2f}s. "
-        f"Splitting into {num_chunks} chunks of ~{chunk_duration_ms / 1000:.2f}s each."
-    )
+    chunk_duration_ms = _get_chunk_duration(max_size, file_size, total_duration_s)
 
     full_text, all_segments, all_words = [], [], []
     segment_id_counter = 0
@@ -108,6 +93,26 @@ def transcribe_in_chunks(audio_file: Path, model: str, lang: str | None) -> dict
 
     logger.info("Successfully combined transcriptions from all chunks.")
     return combined_result
+
+def _get_chunk_duration(max_size: int, file_size: int, total_duration_s: float) -> int:
+    
+    # Calculate average bytes per second to estimate duration for max_size
+    # Add a 5% safety margin to stay safely under the limit.
+    safe_max_size = max_size * 0.95 
+    avg_bytes_per_second = file_size / total_duration_s
+    
+    # This is the maximum duration a chunk can be to not exceed the size limit
+    max_duration_per_chunk_s = safe_max_size / avg_bytes_per_second
+    
+    # Now, create evenly distributed chunks
+    num_chunks = math.ceil(total_duration_s / max_duration_per_chunk_s)
+    chunk_duration_ms = math.ceil((total_duration_s / num_chunks) * 1000)
+    
+    logger.debug(
+        f"Audio duration: {total_duration_s:.2f}s. "
+        f"Splitting into {num_chunks} chunks of ~{chunk_duration_ms / 1000:.2f}s each."
+    )
+    return chunk_duration_ms
 
 def _chunk_audio(
     self,
