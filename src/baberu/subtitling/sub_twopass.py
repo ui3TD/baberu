@@ -41,7 +41,7 @@ def find_segments(subtitles: SSAFile,
     if segments:
         _print_preview(segments, subtitles, grp_min_lines)
     else:
-        logger.info(f"No mistimed segments found.")
+        logger.debug(f"No mistimed segments found.")
         return segments
     
     return segments
