@@ -7,6 +7,7 @@ import json
 import dotenv
 from pysubs2 import SSAFile
 
+from baberu.constants import CODEC_TO_EXTENSION_MAP
 from baberu.setup import config_setup, logging_setup, args_setup
 from baberu.subtitling import sub_correction, sub_translation, sub_utils
 from baberu.tools import av_utils, file_utils
@@ -44,7 +45,15 @@ def _extract(video_file: Path,
             f"No audio codec found for direct copy extraction."
         )
     
-    output_audio_file: Path = output_file or Path(output_root + "." + codec_name)
+    extension = CODEC_TO_EXTENSION_MAP.get(codec_name.lower(), None)
+    
+    if extension is None:
+        logger.warning(
+            f"No conventional extension found for codec '{codec_name}'. Using codec name as extension."
+        )
+        extension = codec_name
+
+    output_audio_file: Path = output_file or Path(f"{output_root}.{extension}")
     
     if output_audio_file.exists():
         logger.warning(f"Extraction skipped. File already exists: {output_audio_file}")
