@@ -26,7 +26,7 @@ def _download(url: Path,
         logger.warning(f"Download skipped. File already exists: {output_file}")
         return output_file
 
-    logger.debug(f"Downloading from {url}...")
+    logger.info(f"Downloading from {url}...")
     downloaded_file: Path = av_utils.download(url, output_filename=output_file, download_directory=output_dir)
     logger.info(f"Downloaded to: {downloaded_file}")
     return downloaded_file
@@ -50,7 +50,7 @@ def _extract(video_file: Path,
         logger.warning(f"Extraction skipped. File already exists: {output_audio_file}")
         return output_audio_file
     
-    logger.debug(f"Extracting audio from: {video_file} to {output_audio_file}")
+    logger.info(f"Extracting audio from: {video_file} to {output_audio_file}")
     audio_file = av_utils.extract_audio(video_file, output_audio_file)
     logger.info(f"Audio extracted: {audio_file}")
     
@@ -74,7 +74,7 @@ def _transcribe(audio_file: Path,
             json_data = json.load(f)
         json_data = transcript_provider_type.validate(json_data)
     else:
-        logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
+        logger.info(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
         max_size = transcript_provider.max_size_bytes
         file_size = audio_file.stat().st_size
@@ -115,7 +115,7 @@ def _convert(transcript: TranscriptionResult,
         sub_data = sub_utils.load(output_sub_file)
         return sub_data
 
-    logger.debug(f"Converting transcription JSON to subtitles: {output_sub_file}")
+    logger.info(f"Converting transcription JSON to subtitles: {output_sub_file}")
     sub_data = transcript_conversion.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Transcription converted: {output_sub_file}")
@@ -158,6 +158,7 @@ def _twopass(sub_data: SSAFile,
             return sub_data, segment, output_sub_file
         
         segments = [segment]
+        logger.info(f"Retranscribing segment {segment} for two-pass process...")
     else:
         output_sub_file = Path(output_root + ".2pass.ass")
     
@@ -171,7 +172,7 @@ def _twopass(sub_data: SSAFile,
             logger.info("Retranscription skipped. No segments identified for retranscription.")
             return sub_data, segment, output_sub_file
 
-        logger.debug(f"Retranscribing {len(segments)} segments for two-pass process...")
+        logger.info(f"Retranscribing {len(segments)} segment(s) for two-pass process...")
         segments = transcript_segmented.pad_segments(sub_data, segments)
     
     sub_data = transcript_segmented.transcribe_segments(sub_data, segments, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
@@ -239,7 +240,7 @@ def _contextualize(sub_data: SSAFile,
         if context_file.exists():
             context_data = sub_translation.load_context(context_file)
         else:
-            logger.debug(f"Generating context file... Output: {context_file}")
+            logger.info(f"Generating context file... Output: {context_file}")
             context_data = sub_translation.generate_context(sub_data, model, Path(output_root).name, lang_from, lang_to)
             sub_translation.write_lines([context_data], context_file)
 
@@ -249,7 +250,7 @@ def _contextualize(sub_data: SSAFile,
     else:
         context_data = sub_translation.load_context(Path(instruction))
     
-    logger.info(f"Context generated: {context_file}")
+    logger.info(f"Context loaded: {context_file}")
     return context_data
 
 def _translate(sub_data: SSAFile, 
@@ -289,8 +290,9 @@ def _translate(sub_data: SSAFile,
         partial_file = Path(output_root + ".partial.en.txt")
         start_index = 0
 
+    logger.info(f"Initializing translation to: {output_sub_file}")
     txt_data = sub_translation.translate(sub_data, partial_file, context, model, lang_from, lang_to, context_lines, batch_lines, discard_lines, translate_retries, server_retries, max_cont_lines, segment)
-    sub_data = sub_utils.replace_text(txt_data[start_index:], sub_data, start_index)
+    sub_data = sub_utils.replace_lines(txt_data[start_index:], sub_data, start_index)
 
     if output_sub_file.suffix == ".ass":
         sub_data = sub_utils.md_to_ass(sub_data)

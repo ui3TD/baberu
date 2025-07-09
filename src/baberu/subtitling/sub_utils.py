@@ -117,7 +117,7 @@ def md_to_ass(subtitles: SSAFile) -> SSAFile:
     logger.info(f"Applied formatting: {bold_count} bold, {italic_count} italic, {bold_italic_count} bold-italic elements")
     return subtitles
 
-def replace_text(text_lines: list[str], source_subs: SSAFile, idx: int = 0) -> SSAFile:
+def replace_lines(text_lines: list[str], source_subs: SSAFile, idx: int = 0) -> SSAFile:
     """Replaces text in existing subtitle events, preserving original timing.
     
     Args:

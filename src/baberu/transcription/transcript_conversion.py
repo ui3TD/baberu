@@ -131,6 +131,7 @@ def _delimit_segment(
                     sys_prompt = "Provide only the requested text without commentary or special formatting."
                     user_prompt = f"Split the following text into two lines at a logical point without modifications to the text or punctuation:\n{trimmed_current_text}"
 
+                    logger.debug(f"Using AI to split line: '{trimmed_current_text}'")
                     client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
                     api_response = client.prompt(user_prompt)
 

@@ -49,7 +49,6 @@ def find_mistimed_lines(subtitles: SSAFile,
     # Group consecutive short subtitles
     groups = find_mistimed_groups(mistimed_subtitles, grp_min_lines)
 
-    logger.debug(f"Found {len(groups)} large mistimed groups with duration less than {threshold} seconds")
     if not groups:
         return mistimed_subtitles
         
@@ -82,7 +81,6 @@ def find_mistimed_lines(subtitles: SSAFile,
 
     # Merge large groups that are close
     mistimed_subtitles = _merge_nearby_groups(mistimed_subtitles, groups, grp_max_gap)
-
     return mistimed_subtitles
 
 def find_mistimed_groups(mistimed_lines: set[int], 
@@ -109,6 +107,8 @@ def find_mistimed_groups(mistimed_lines: set[int],
                 
     if current_group and len(current_group) >= group_min_lines:
         groups.append(current_group)
+
+    logger.debug(f"{len(groups)} mistimed groups found: {groups}")
     return groups
 
 def fix_mistimed_lines(subtitles: SSAFile, 

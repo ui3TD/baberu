@@ -23,8 +23,6 @@ def download(url: str,
     Returns:
         The path to the downloaded file.
     """
-    logger.debug(f"Downloading from {url}...")
-    
     # Configure output template
     if download_directory:
         if output_filename:
@@ -64,8 +62,6 @@ def extract_audio(video_file: Path,
     Returns:
         The path to the extracted audio file.
     """
-    logger.debug(f"Extracting audio from {video_file}...")
-
     if not output_file:
         codec_name = get_audio_codec(video_file)
         if not codec_name:

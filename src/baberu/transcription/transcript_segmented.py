@@ -179,7 +179,7 @@ def _print_preview(segments: list[list[int]],
                    subtitles: SSAFile,
                    min_lines: int) -> None:
     """Prints a formatted preview of the identified mistimed segments."""
-    logger.info(f"Segments of over {min_lines} consecutive short subtitles found:")
+    print(f"Segments of over {min_lines} consecutive short subtitles found:")
     for segment in segments:
         end_time_sec = subtitles.events[segment[-1]].end / 1000.0
         start_time_sec = subtitles.events[segment[0]].start / 1000.0
@@ -189,5 +189,5 @@ def _print_preview(segments: list[list[int]],
         duration_sec = end_time_sec - start_time_sec
         duration_min, duration_sec = divmod(duration_sec, 60)
         
-        logger.info(f"  Timing: {int(start_min)}:{start_sec:05.2f} to {int(end_min)}:{end_sec:05.2f} | Duration: {int(duration_min)}:{duration_sec:05.2f} | {len(segment)} lines")
+        print(f"  Timing: {int(start_min)}:{start_sec:05.2f} to {int(end_min)}:{end_sec:05.2f} | Duration: {int(duration_min)}:{duration_sec:05.2f} | {len(segment)} lines")
     return
