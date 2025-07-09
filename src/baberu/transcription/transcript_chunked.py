@@ -6,25 +6,33 @@ import tempfile
 import math
 from pydub import AudioSegment
 
-from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider
+from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment, TranscribedWord
 
 logger = logging.getLogger(__name__)
 
-def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang: str | None) -> dict[str, Any]:
-    
+def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang: str | None) -> TranscriptionResult:
+    """
+    Transcribes a large audio file by splitting it into chunks and processing each one.
+
+    Args:
+        audio_file: Path to the audio file.
+        provider: The transcription provider instance.
+        lang: The language of the audio. If None, it will be auto-detected.
+
+    Returns:
+        A structured TranscriptionResult object.
+    """
     max_size = provider.max_size_bytes
     file_size = audio_file.stat().st_size
     
     logger.debug(f"File size: {file_size / (1024 * 1024):.2f} MB")
 
-    if not max_size:
-        logger.error("Chunking is not applicable. Model has no max size.")
-        raise ValueError
-    elif file_size <= max_size:
-        logger.error(f"Chunking is not applicable. File size {file_size / (1024 * 1024):.2f} is less than model's max size {max_size / (1024 * 1024):.2f}.")
-        raise ValueError
+    if not max_size or file_size <= max_size:
+        reason = "Model has no max size" if not max_size else f"File size {file_size / (1024 * 1024):.2f} MB is not greater than model's max size {max_size / (1024 * 1024):.2f} MB"
+        logger.error(f"Chunking is not applicable. {reason}.")
+        raise ValueError("Chunking is not applicable for this file and provider.")
 
-    logger.info(f"Transcribing audio from {audio_file}...")
+    logger.info(f"Audio file is large, transcribing in chunks: {audio_file}")
 
     try:
         audio = AudioSegment.from_file(audio_file)
@@ -36,12 +44,11 @@ def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang
         ) from e
 
     chunk_duration_ms = _get_chunk_duration(max_size, file_size, total_duration_s)
-
-    full_text, all_segments, all_words = [], [], []
-    segment_id_counter = 0
+    
+    # This list will store the final, time-adjusted TranscribedSegment objects from all chunks.
+    all_segments: list[TranscribedSegment] = []
     detected_language = lang 
     
-    # The generator handles creating and cleaning up temporary chunk files
     chunk_generator = _chunk_audio(
         audio, 
         audio_file_format=audio_file.suffix.lstrip('.'), 
@@ -50,47 +57,39 @@ def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang
 
     for chunk_path, time_offset_s in chunk_generator:
         logger.info(f"Transcribing chunk starting at {time_offset_s:.2f}s...")
+        
+        # The provider returns raw data, which we immediately parse into our standard model.
         with open(chunk_path, "rb") as chunk_data:
-            chunk_transcription = provider.transcribe(chunk_data, lang=lang)
+            response_data: dict[str, Any] = provider.transcribe(chunk_data, lang=lang)
+
+        transcript: TranscriptionResult = provider.parse(response_data)
         
-        response_data = chunk_transcription.model_dump()
-        
-        # If language is not specified, use the one from the first chunk
         if detected_language is None:
-            detected_language = response_data.get('language')
+            detected_language = transcript.language
 
-        full_text.append(response_data['text'])
-        
-        for segment in response_data.get('segments', []):
-            segment['start'] += time_offset_s
-            segment['end'] += time_offset_s
-            segment['id'] = segment_id_counter
-            all_segments.append(segment)
-            segment_id_counter += 1
-        
-        for word in response_data.get('words', []):
-            word['start'] += time_offset_s
-            word['end'] += time_offset_s
-            all_words.append(word)
-    
-    # Combine all results into a single dictionary
-    total_duration = all_segments[-1]['end'] if all_segments else 0
-    combined_result = {
-        "text": " ".join(full_text).strip(),
-        "segments": all_segments,
-        "words": all_words,
-        "language": detected_language,
-        "duration": total_duration,
-        "task": "transcribe",
-        "usage": {
-            "duration": total_duration,
-            "type": "duration",
-            "seconds": int(round(total_duration)) # schema requires integer
-        }
-    }
-
+        for segment in transcript.segments:
+            adjusted_words = []
+            for word in segment.words:
+                # Create a new word with the global timestamp.
+                adjusted_word = word.model_copy(
+                    update={
+                        "start": word.start + time_offset_s,
+                        "end": word.end + time_offset_s,
+                    }
+                )
+                adjusted_words.append(adjusted_word)
+            
+            # Only add segments that contain words after processing.
+            if adjusted_words:
+                all_segments.append(TranscribedSegment(words=adjusted_words))
+            
+    # --- Assemble the final result from the collected segments ---
     logger.info("Successfully combined transcriptions from all chunks.")
-    return combined_result
+    
+    return TranscriptionResult(
+        segments=all_segments,
+        language=detected_language
+    )
 
 def _get_chunk_duration(max_size: int, file_size: int, total_duration_s: float) -> int:
     
@@ -149,3 +148,57 @@ def _chunk_audio(
             
             time_offset_s = start_ms / 1000.0
             yield chunk_file_path, time_offset_s
+
+
+def to_openai_response(self) -> dict[str, Any]:
+    """
+    Transforms the structured transcription result into the required JSON schema (dict).
+    
+    This method reconstructs the flat-list format with separate 'segments' and 'words'
+    keys, similar to common transcription API responses.
+    """
+    all_words_json = []
+    all_segments_json = []
+    full_text_parts = []
+    
+    for i, segment_obj in enumerate(self.segments):
+        if not segment_obj.words:
+            continue
+
+        # Create the segment dictionary for the JSON output
+        segment_text = segment_obj.text
+        all_segments_json.append({
+            "id": i,
+            "start": segment_obj.start,
+            "end": segment_obj.end,
+            "text": segment_text,
+        })
+        full_text_parts.append(segment_text)
+
+        # Create word dictionaries for the JSON output
+        for word_obj in segment_obj.words:
+            # The word dict in the final JSON often uses the key 'word' for the text
+            word_dict = {
+                "word": word_obj.text,
+                "start": word_obj.start,
+                "end": word_obj.end,
+            }
+            if word_obj.confidence is not None:
+                word_dict["confidence"] = word_obj.confidence
+            all_words_json.append(word_dict)
+
+    total_duration = all_segments_json[-1]['end'] if all_segments_json else 0
+    
+    return {
+        "text": " ".join(full_text_parts).strip(),
+        "segments": all_segments_json,
+        "words": all_words_json,
+        "language": self.language,
+        "duration": total_duration,
+        "task": "transcribe",
+        "usage": {
+            "duration": total_duration,
+            "type": "duration",
+            "seconds": int(round(total_duration))
+        }
+    }
