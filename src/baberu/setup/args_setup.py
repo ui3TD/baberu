@@ -94,5 +94,4 @@ def init_parser() -> ArgumentParser:
     parser.add_argument('--lines',
                    type=str,
                    help='Line number range in format XX-YY (e.g. 5-20)')
-    logger.debug("Parser initialized successfully.")
     return parser
