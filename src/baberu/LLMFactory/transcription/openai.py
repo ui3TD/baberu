@@ -21,7 +21,6 @@ class WhisperProvider(TranscriptionProvider):
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
 
-        max_size = 25 * 1024 * 1024  # 25MB in bytes
         file_size = audio_file.stat().st_size
         
         self.logger.debug(f"File size: {file_size / (1024 * 1024):.2f} MB")
@@ -30,147 +29,21 @@ class WhisperProvider(TranscriptionProvider):
         
         lang = kwargs.get("lang", None)
         
-        if file_size < max_size:
-            audio_data= open(audio_file, "rb")
-            transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
-                file=audio_data,
-                model=self.model,
-                language=lang,
-                response_format="verbose_json",
-                timestamp_granularities=["word", "segment"],
-                timeout = 3600
-            )
-            self.logger.debug(f"OpenAI API response: {transcription.model_dump()}")
-            return transcription.model_dump()
+        if file_size > self.max_size_bytes:
+            self.logger.error(f"File size {file_size / (1024 * 1024):.2f} exceeds model's max size {self.max_size_bytes / (1024 * 1024):.2f}.")
+            raise ValueError
         
-        self.logger.info(f"File size exceeds 25MB. Splitting and processing in chunks...")
-
-        try:
-            audio = AudioSegment.from_file(audio_file)
-            total_duration_s = len(audio) / 1000.0
-        except Exception as e:
-            raise ValueError(
-                f"Could not load audio file: {audio_file}. "
-                "Ensure it is a valid audio format and ffmpeg is installed."
-            ) from e
-
-        # Calculate average bytes per second to estimate duration for max_size
-        # Add a 5% safety margin to stay safely under the limit.
-        safe_max_size = max_size * 0.95 
-        avg_bytes_per_second = file_size / total_duration_s
-        
-        # This is the maximum duration a chunk can be to not exceed the size limit
-        max_duration_per_chunk_s = safe_max_size / avg_bytes_per_second
-        
-        # Now, create evenly distributed chunks
-        num_chunks = math.ceil(total_duration_s / max_duration_per_chunk_s)
-        chunk_duration_ms = math.ceil((total_duration_s / num_chunks) * 1000)
-        
-        self.logger.info(
-            f"Audio duration: {total_duration_s:.2f}s. "
-            f"Splitting into {num_chunks} chunks of ~{chunk_duration_ms / 1000:.2f}s each."
+        audio_data= open(audio_file, "rb")
+        transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
+            file=audio_data,
+            model=self.model,
+            language=lang,
+            response_format="verbose_json",
+            timestamp_granularities=["word", "segment"],
+            timeout = 3600
         )
-
-        full_text, all_segments, all_words = [], [], []
-        segment_id_counter = 0
-        detected_language = lang 
-        
-        # The generator handles creating and cleaning up temporary chunk files
-        chunk_generator = self._chunk_audio(
-            audio, 
-            audio_file_format=audio_file.suffix.lstrip('.'), 
-            chunk_length_ms=chunk_duration_ms
-        )
-
-        for chunk_path, time_offset_s in chunk_generator:
-            self.logger.info(f"Transcribing chunk starting at {time_offset_s:.2f}s...")
-            with open(chunk_path, "rb") as chunk_data:
-                chunk_transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
-                    file=chunk_data,
-                    model=self.model,
-                    language=lang,
-                    response_format="verbose_json",
-                    timestamp_granularities=["word", "segment"],
-                    timeout=3600
-                )
-            self.logger.debug(f"OpenAI API response: {chunk_transcription.model_dump()}")
-            
-            response_data = chunk_transcription.model_dump()
-            
-            # If language is not specified, use the one from the first chunk
-            if detected_language is None:
-                detected_language = response_data.get('language')
-
-            full_text.append(response_data['text'])
-            
-            for segment in response_data.get('segments', []):
-                segment['start'] += time_offset_s
-                segment['end'] += time_offset_s
-                segment['id'] = segment_id_counter
-                all_segments.append(segment)
-                segment_id_counter += 1
-            
-            for word in response_data.get('words', []):
-                word['start'] += time_offset_s
-                word['end'] += time_offset_s
-                all_words.append(word)
-        
-        # Combine all results into a single dictionary
-        total_duration = all_segments[-1]['end'] if all_segments else 0
-        combined_result = {
-            "text": " ".join(full_text).strip(),
-            "segments": all_segments,
-            "words": all_words,
-            "language": detected_language,
-            "duration": total_duration,
-            "task": "transcribe",
-            "usage": {
-                "duration": total_duration,
-                "type": "duration",
-                "seconds": int(round(total_duration)) # schema requires integer
-            }
-        }
-
-        self.logger.info("Successfully combined transcriptions from all chunks.")
-        return combined_result
-    
-    def _chunk_audio(
-        self,
-        audio: AudioSegment,
-        audio_file_format: str,
-        chunk_length_ms: int
-    ) -> Generator[tuple[Path, float], None, None]:
-        """
-        Yields temporary chunk files from a pydub AudioSegment object.
-
-        This is a generator function that creates and yields one chunk at a time
-        within a temporary directory, which is cleaned up automatically after
-        the generator is exhausted.
-
-        Args:
-            audio: The loaded pydub.AudioSegment object.
-            audio_file_format: The original file format (e.g., "mp3", "wav").
-            chunk_length_ms: The desired length of each chunk in milliseconds.
-
-        Yields:
-            A tuple containing the Path to the temporary chunk file and its
-            time offset in seconds from the start of the original audio.
-        """
-        total_duration_ms = len(audio)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_dir_path = Path(temp_dir)
-            
-            for i, start_ms in enumerate(range(0, total_duration_ms, chunk_length_ms)):
-                end_ms = start_ms + chunk_length_ms
-                chunk = audio[start_ms:end_ms]
-                
-                chunk_file_path = temp_dir_path / f"chunk_{i}.{audio_file_format or 'mp3'}"
-                
-                self.logger.debug(f"Exporting chunk {i+1} to {chunk_file_path}")
-                chunk.export(chunk_file_path, format=audio_file_format)
-                
-                time_offset_s = start_ms / 1000.0
-                yield chunk_file_path, time_offset_s
+        self.logger.debug(f"OpenAI API response: {transcription.model_dump()}")
+        return transcription.model_dump()
 
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
