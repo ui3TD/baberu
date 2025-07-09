@@ -13,7 +13,7 @@ from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult
-from baberu.transcription import transcript_conversion, transcript_segmented
+from baberu.transcription import transcript_conversion, transcript_segmented, transcript_chunked
 
 app_config: dict[str, Any] = None
 logger: logging.Logger = None
@@ -76,7 +76,12 @@ def _transcribe(audio_file: Path,
     else:
         logger.debug(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
-        json_data = transcript_provider.transcribe(audio_file, lang=lang)
+        max_size = transcript_provider.max_size_bytes
+        file_size = audio_file.stat().st_size
+        if max_size and file_size > max_size:
+            json_data = transcript_chunked.transcribe_in_chunks(audio_file, transcript_provider, lang=lang)
+        else:
+            json_data = transcript_provider.transcribe(audio_file, lang=lang)
         transcript_conversion.write_transcript_json(json_data, json_file)
         logger.info(f"Audio transcribed: {json_file}")
 

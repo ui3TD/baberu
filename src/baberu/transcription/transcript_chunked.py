@@ -6,15 +6,13 @@ import tempfile
 import math
 from pydub import AudioSegment
 
-from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider
 
 logger = logging.getLogger(__name__)
 
-def transcribe_in_chunks(audio_file: Path, model: str, lang: str | None) -> dict[str, Any]:
+def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang: str | None) -> dict[str, Any]:
     
-    transcription_provider = AIToolFactory.get_transcription_provider(model)
-    max_size = transcription_provider.max_size_bytes
+    max_size = provider.max_size_bytes
     file_size = audio_file.stat().st_size
     
     logger.debug(f"File size: {file_size / (1024 * 1024):.2f} MB")
@@ -53,7 +51,7 @@ def transcribe_in_chunks(audio_file: Path, model: str, lang: str | None) -> dict
     for chunk_path, time_offset_s in chunk_generator:
         logger.info(f"Transcribing chunk starting at {time_offset_s:.2f}s...")
         with open(chunk_path, "rb") as chunk_data:
-            chunk_transcription = transcription_provider.transcribe(chunk_data, lang=lang)
+            chunk_transcription = provider.transcribe(chunk_data, lang=lang)
         
         response_data = chunk_transcription.model_dump()
         
