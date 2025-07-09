@@ -8,12 +8,12 @@ import dotenv
 from pysubs2 import SSAFile
 
 from baberu.setup import config_setup, logging_setup, args_setup
-from baberu.subtitling import sub_correction, sub_translation, sub_twopass, sub_utils
+from baberu.subtitling import sub_correction, sub_translation, sub_utils
 from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
 from baberu.LLMFactory.factory import AIToolFactory
 from baberu.LLMFactory.transcription.base import TranscriptionResult
-from baberu.transcription import transcript_conversion
+from baberu.transcription import transcript_conversion, transcript_segmented
 
 app_config: dict[str, Any] = None
 logger: logging.Logger = None
@@ -153,15 +153,15 @@ def _twopass(sub_data: SSAFile,
             sub_data = sub_utils.load(output_sub_file)
             return sub_data, segment, output_sub_file
             
-        segments: list[list[int]] = sub_twopass.find_segments(sub_data, mistimed_seg_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap)
+        segments: list[list[int]] = transcript_segmented.find_segments(sub_data, mistimed_seg_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap)
         if len(segments) == 0:
             logger.info("Retranscription skipped. No segments identified for retranscription.")
             return sub_data, segment, output_sub_file
 
         logger.debug(f"Retranscribing {len(segments)} segments for two-pass process...")
-        segments = sub_twopass.pad_segments(sub_data, segments)
+        segments = transcript_segmented.pad_segments(sub_data, segments)
     
-    sub_data = sub_twopass.transcribe_segments(sub_data, segments, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
+    sub_data = transcript_segmented.transcribe_segments(sub_data, segments, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
     sub_data = sub_correction.remove_empty(sub_data)
     
     if segment:
