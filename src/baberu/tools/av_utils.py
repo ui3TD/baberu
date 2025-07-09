@@ -5,7 +5,6 @@ import logging
 import yt_dlp
 import ffmpeg
 from pydub import AudioSegment
-from pydub.utils import mediainfo
 
 logger = logging.getLogger(__name__)
 
