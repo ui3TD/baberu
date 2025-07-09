@@ -6,14 +6,25 @@ import tempfile
 import math
 from pydub import AudioSegment
 
+from baberu.LLMFactory.factory import AIToolFactory
+from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider
+
 logger = logging.getLogger(__name__)
 
-def process_chunked_transcript(audio_file: Path, lang: str | None) -> dict[str, Any]:
+def transcribe_in_chunks(audio_file: Path, model: str, lang: str | None) -> dict[str, Any]:
     
-    max_size = 25 * 1024 * 1024  # 25MB in bytes
+    transcription_provider = AIToolFactory.get_transcription_provider(model)
+    max_size = transcription_provider.max_size_bytes
     file_size = audio_file.stat().st_size
     
     logger.debug(f"File size: {file_size / (1024 * 1024):.2f} MB")
+
+    if not max_size:
+        logger.error("Chunking is not applicable. Model has no max size.")
+        raise ValueError
+    elif file_size <= max_size:
+        logger.error(f"Chunking is not applicable. File size {file_size / (1024 * 1024):.2f} is less than model's max size {max_size / (1024 * 1024):.2f}.")
+        raise ValueError
 
     logger.info(f"Transcribing audio from {audio_file}...")
 
@@ -57,14 +68,7 @@ def process_chunked_transcript(audio_file: Path, lang: str | None) -> dict[str, 
     for chunk_path, time_offset_s in chunk_generator:
         logger.info(f"Transcribing chunk starting at {time_offset_s:.2f}s...")
         with open(chunk_path, "rb") as chunk_data:
-            chunk_transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
-                file=chunk_data,
-                model=self.model,
-                language=lang,
-                response_format="verbose_json",
-                timestamp_granularities=["word", "segment"],
-                timeout=3600
-            )
+            chunk_transcription = transcription_provider.transcribe(chunk_data, lang=lang)
         
         response_data = chunk_transcription.model_dump()
         
