@@ -21,11 +21,12 @@ class GrokProvider(LLMProvider):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        self.logger.debug(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
+        self.logger.debug(f"Grok prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
         completion = self.client.responses.create(
             model=self.model,
             input=prompt_messages
         )
+        self.logger.debug(f"Grok response:\n{json.dumps(completion, indent=2)}")
         response = completion.output_text
 
         return response

@@ -20,12 +20,13 @@ class OProvider(LLMProvider):
         prompt_messages = [
             {"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}
         ]
-        self.logger.info(f"Prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
+        self.logger.debug(f"OpenAI prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
         completion = self.client.responses.create(
             model=self.model,
             input=prompt_messages,
             reasoning={"effort": "high"}
         )
+        self.logger.debug(f"OpenAI response:\n{json.dumps(completion, indent=2)}")
         response = completion.output_text
 
         return response
