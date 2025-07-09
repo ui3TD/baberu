@@ -8,22 +8,23 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 
 ## Features
 
-*   **Versatile Input:** Accepts media URLs, local video/audio files, JSON transcripts, or existing subtitle files (`.srt`, `.ass`, `.vtt`).
-*   **Modular Workflow:** Activate specific processing stages (download, extract, transcribe, convert, fix, translate) via command-line flags.
-*   **Autopilot Mode:** A single `--auto-pilot` flag to run the entire standard pipeline from media to translated and refined subtitles.
-*   **Automated Audio Extraction:** Extracts audio (defaults to `.opus`) from video sources.
-*   **AI-Powered Transcription:** Utilizes various APIs for speech-to-text, including ElevenLabs, OpenAI (Whisper), and Fireworks AI (Whisper-v3).
-*   **Subtitle Generation:** Converts transcriptions into timed subtitles (default: `.ass`).
-*   **Accuracy Enhancement (Two-Pass):** Optionally re-transcribes low-confidence segments for improved accuracy.
-*   **Automated Timing Correction:** Applies heuristics to fix common subtitle timing issues.
-*   **Timing Refinement:** Pads subtitle timings to meet readability standards (CPS, lead-in/out).
-*   **Contextual Translation:** Translates subtitles using a wide range of LLMs, including Google Gemini, Anthropic Claude, OpenAI GPT, Grok, Deepseek, and models available via OpenRouter. Leverages auto-generated or provided context. Supports partial progress saving.
-*   **Targeted Processing:** Apply fixes, re-transcription, or translation to a specific range of lines using the `--lines` flag.
-*   **Final Output Options:**
-    *   Burn subtitles directly onto a video (`--hardcode`).
+*   **Flexible Input:** Handles media URLs, local video/audio files, JSON transcripts, and existing subtitle files (`.srt`, `.ass`, `.vtt`).
+*   **Configurable Pipeline:** Run a full workflow with `--auto-pilot` or execute specific stages individually. The pipeline is resumable, automatically skipping completed steps.
+    *   **`extract`:** Pulls audio from video files.
+    *   **`speech-to-text`:** Transcribes audio to a text file using an external API.
+    *   **`convert`:** Generates timed `.ass` subtitles from a transcript, leveraging an LLM to break long lines.
+    *   **`retranscribe`:** Improves accuracy by re-processing low-confidence segments (two-pass).
+    *   **`fix`:** Applies automated corrections for common timing issues.
+    *   **`translate`:** Translates subtitles using an LLM with user-provided or auto-generated grounded context.
+    *   **`pad`:** Adjusts subtitle timings to meet readability standards (CPS, lead-in/out).
+*   **AI Service Integration:**
+    *   **Transcription:** ElevenLabs, OpenAI (Whisper), Fireworks AI (Whisper-v3).
+    *   **Translation (LLMs):** Google Gemini, Anthropic Claude, OpenAI GPT, Grok, Deepseek, and various models via OpenRouter.
+*   **Targeted Processing:** Apply fixes, translations, or re-transcription to a specific range of lines with the `--lines` flag.
+*   **Output Options:**
+    *   Generate a final `.ass` file.
     *   Create a video from an audio file and a static image (`--audio-to-video`).
-*   **Efficient Processing:** Skips completed stages by detecting existing intermediate files (e.g., `.opus`, `.json`, `.raw.ass`, `.en.ass`), enabling easy pipeline resumption.
-*   **Output Customization:** Allows specification of output directories and final filenames.
+    *   Burn subtitles directly onto a video (`--hardcode`).
 
 ## Prerequisites
 
