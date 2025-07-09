@@ -7,7 +7,7 @@ logging:
   file_level: "DEBUG"
 
 transcription:
-  elevenlabs_model: "scribe_v1_experimental"
+  elevenlabs_model: "whisper-1"
   default_lang_from: "ja"
 
 parsing:
