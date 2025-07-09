@@ -39,7 +39,7 @@ class WhisperProvider(TranscriptionProvider):
                 timestamp_granularities=["word", "segment"],
                 timeout = 3600
             )
-            self.logger.debug(f"API response: {transcription.model_dump()}")
+            self.logger.debug(f"OpenAI API response: {transcription.model_dump()}")
             return transcription.model_dump()
         
         self.logger.info(f"File size exceeds 25MB. Splitting and processing in chunks...")
@@ -84,7 +84,7 @@ class WhisperProvider(TranscriptionProvider):
         for chunk_path, time_offset_s in chunk_generator:
             self.logger.info(f"Transcribing chunk starting at {time_offset_s:.2f}s...")
             with open(chunk_path, "rb") as chunk_data:
-                chunk_transcription = self.client.audio.transcriptions.create(
+                chunk_transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
                     file=chunk_data,
                     model=self.model,
                     language=lang,
@@ -92,9 +92,9 @@ class WhisperProvider(TranscriptionProvider):
                     timestamp_granularities=["word", "segment"],
                     timeout=3600
                 )
+            self.logger.debug(f"OpenAI API response: {chunk_transcription.model_dump()}")
             
             response_data = chunk_transcription.model_dump()
-            self.logger.debug(f"Chunk API response processed.")
             
             # If language is not specified, use the one from the first chunk
             if detected_language is None:

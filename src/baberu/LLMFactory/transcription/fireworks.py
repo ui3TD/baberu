@@ -36,7 +36,7 @@ class FireworksProvider(TranscriptionProvider):
             )
 
         if transcription.status_code == 200:
-            print(transcription.json())
+            pass
         else:
             print(f"Error: {transcription.status_code}", transcription.text)
             raise ConnectionAbortedError
