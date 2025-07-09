@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class formats:
     _video_suffixes = [".mp4", ".mkv", ".webm", ".ts", ".flv", ".mov", ".avi", ".wmv"]
-    _audio_suffixes = [".oga", ".mp3", ".aac", ".m4a", ".wav", ".flac", ".opus"]
+    _audio_suffixes = [".oga", ".mp3", ".aac", ".m4a", ".wav", ".flac", ".opus", ".ogg", ".ac3", ".eac3"]
     _json_suffixes = [".json"]
     _subtitle_suffixes = [".srt", ".ass", ".ssa", ".vtt", ".sbv"]
     _text_suffixes = [".txt"]
