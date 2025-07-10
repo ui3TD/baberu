@@ -111,6 +111,7 @@ def _convert(transcript: TranscriptionResult,
     config = app_config['parsing']
     delimiters: list[str] = config['delimiters']
     soft_delimiters: list[str] = config['soft_delimiters']
+    remove_text: list[str] = config['remove_text']
     soft_max_lines: int = config['soft_max_lines']
     hard_max_lines: int = config['hard_max_lines']
     hard_max_carryover: int = config['hard_max_carryover']
@@ -125,7 +126,15 @@ def _convert(transcript: TranscriptionResult,
         return sub_data
 
     logger.info(f"Converting transcription JSON to subtitles: {output_sub_file}")
-    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, parsing_model)
+    sub_data = transcript_conversion.convert_transcript_to_subs(
+        transcript=transcript, 
+        delimiters=delimiters, 
+        soft_delimiters=soft_delimiters, 
+        remove_text=remove_text,
+        soft_max_lines=soft_max_lines, 
+        hard_max_lines=hard_max_lines, 
+        hard_max_carryover=hard_max_carryover, 
+        model=parsing_model)
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Transcription converted: {output_sub_file}")
 
@@ -143,6 +152,7 @@ def _twopass(sub_data: SSAFile,
     transcription_model: str = transcription_config['elevenlabs_model']
     delimiters: list[str] = parsing_config['delimiters']
     soft_delimiters: list[str] = parsing_config['soft_delimiters']
+    remove_text: list[str] = parsing_config['remove_text']
     soft_max_lines: int = parsing_config['soft_max_lines']
     hard_max_lines: int = parsing_config['hard_max_lines']
     hard_max_carryover: int = parsing_config['hard_max_carryover']
@@ -184,7 +194,19 @@ def _twopass(sub_data: SSAFile,
         logger.info(f"Retranscribing {len(segments)} segment(s) for two-pass process...")
         segments = transcript_segmented.pad_segments(sub_data, segments)
     
-    sub_data = transcript_segmented.transcribe_segments(sub_data, segments, audio_file, lang, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, transcription_model, parsing_model)
+    sub_data = transcript_segmented.transcribe_segments(
+        subtitles=sub_data, 
+        segments=segments, 
+        audio_file=audio_file, 
+        lang=lang, 
+        delimiters=delimiters, 
+        soft_delimiters=soft_delimiters, 
+        remove_text=remove_text,
+        soft_max_lines=soft_max_lines, 
+        hard_max_lines=hard_max_lines, 
+        hard_max_carryover=hard_max_carryover, 
+        transcription_model=transcription_model, 
+        parsing_model=parsing_model)
     sub_data = sub_correction.remove_empty(sub_data)
     
     if segment:

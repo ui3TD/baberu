@@ -53,6 +53,7 @@ def transcribe_segments(subtitles: SSAFile,
                         lang: str,
                         delimiters: list[str],
                         soft_delimiters: list[str],
+                        remove_text: list[str],
                         soft_max_lines: int,
                         hard_max_lines: int,
                         hard_max_carryover: int,
@@ -130,8 +131,14 @@ def transcribe_segments(subtitles: SSAFile,
                 json_data = transcript_provider.transcribe(temp_audio_path, lang=lang)
                 transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
             new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(
-                transcript, delimiters, soft_delimiters, soft_max_lines, 
-                hard_max_lines, hard_max_carryover, parsing_model
+                transcript=transcript, 
+                delimiters=delimiters, 
+                soft_delimiters=soft_delimiters, 
+                remove_text=remove_text,
+                soft_max_lines=soft_max_lines, 
+                hard_max_lines=hard_max_lines, 
+                hard_max_carryover=hard_max_carryover, 
+                model=parsing_model
             )
             
             new_subtitles.shift(ms=start_time_ms)

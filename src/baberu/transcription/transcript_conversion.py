@@ -26,6 +26,7 @@ def write_transcript_json(json_data: dict[str, Any],
 def convert_transcript_to_subs(transcript: TranscriptionResult,
                     delimiters: list[str] = [],
                     soft_delimiters: list[str] = [],
+                    remove_text: list[str] = [],
                     soft_max_lines: int = 20,
                     hard_max_lines: int = 50,
                     hard_max_carryover: int = 10,
@@ -46,7 +47,15 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
             continue
 
         # Merge segment into lines by delimiter
-        segment_lines = _delimit_segment(segment, delimiters, soft_delimiters, soft_max_lines, hard_max_lines, hard_max_carryover, model)
+        segment_lines = _delimit_segment(
+            segment=segment, 
+            delimiters=delimiters, 
+            soft_delimiters=soft_delimiters, 
+            remove_text=remove_text,
+            soft_max_lines=soft_max_lines, 
+            hard_max_lines=hard_max_lines, 
+            hard_max_carryover=hard_max_carryover, 
+            model=model)
 
         all_lines.extend(segment_lines)
 
@@ -70,6 +79,7 @@ def _delimit_segment(
         segment: TranscribedSegment,
         delimiters: list[str],
         soft_delimiters: list[str],
+        remove_text: list[str],
         soft_max_lines: int,
         hard_max_lines: int,
         hard_max_carryover: int,
@@ -93,7 +103,7 @@ def _delimit_segment(
             # Include the delimiter in prev group
             current_words.pop()
             current_words[-1].text = current_words[-1].text + word.text[0]
-            sub_line = _create_subtitle_line(current_words, clean=True)
+            sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
             sub_lines.append(sub_line)
 
             # Start new group
@@ -102,14 +112,6 @@ def _delimit_segment(
             current_words = [remaining_word]
             current_text = remaining_word.text
 
-        # Force break on close quote
-        if word.text.endswith("」"):
-            force_break = True
-
-        # Force break on open quote if length is greater than 1 (it will be stripped later if length is 1)
-        elif word.text.endswith("「") and len(word.text.strip()) > 1:
-            force_break = True
-
         # Break on optional delimiters
         elif any(word.text.endswith(d) for d in delimiters):
             force_break = True
@@ -117,7 +119,6 @@ def _delimit_segment(
         # Break on audio events
         elif word.type == "audio_event":
             force_break = True
-
 
         # Break on hard max limit
         if len(current_text) > hard_max_lines:
@@ -188,7 +189,7 @@ def _delimit_segment(
                 words_to_keep = current_words[:-carryover_word_count]
                 if words_to_keep:
                     words_to_keep[-1].text = words_to_keep[-1].text + f"{CONTINUE_FLAG}"
-                    sub_line = _create_subtitle_line(words_to_keep, clean=True)
+                    sub_line = _create_subtitle_line(words_to_keep, remove_text, clean=True)
                     sub_lines.append(sub_line)
 
                 # Start the new group with words carried over                 
@@ -205,7 +206,7 @@ def _delimit_segment(
         if force_break:
             if current_words:
                 # Skip lines containing only a delimiter
-                sub_line = _create_subtitle_line(current_words, clean=True)
+                sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
                 if sub_line.text not in soft_delimiters + delimiters:
                     sub_lines.append(sub_line)
 
@@ -213,13 +214,13 @@ def _delimit_segment(
 
     # Add any remaining words
     if current_words:
-        sub_line = _create_subtitle_line(current_words, clean=True)
+        sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
         if sub_line.text not in soft_delimiters + delimiters:
             sub_lines.append(sub_line)
 
     return sub_lines
 
-def _create_subtitle_line(words: list[TranscribedWord], clean: bool = False) -> SubtitleLine:
+def _create_subtitle_line(words: list[TranscribedWord], remove_text: list[str], clean: bool = False) -> SubtitleLine:
     """Combines a group of word objects into a single line dictionary."""
     merged_text = "".join(w.text for w in words)
 
@@ -231,15 +232,17 @@ def _create_subtitle_line(words: list[TranscribedWord], clean: bool = False) -> 
     )
 
     if clean:
-        sub_line = _clean_subtitle_line(sub_line)
+        sub_line = _clean_subtitle_line(sub_line, remove_text)
 
     return sub_line
 
-def _clean_subtitle_line(line: SubtitleLine) -> SubtitleLine:
+def _clean_subtitle_line(line: SubtitleLine, remove_text: list[str]) -> SubtitleLine:
     line_text = line.text
 
-    # Remove Japanese quotation marks
-    line_text = line_text.replace("「", "").replace("」", "")
+    # Remove text
+    if remove_text:
+        for text_to_remove in remove_text:
+            line_text = line_text.replace(text_to_remove, "")
 
     # Remove hyphens at line start
     if line_text.startswith("-"):
