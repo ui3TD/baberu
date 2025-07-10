@@ -482,14 +482,14 @@ def _expand_mistimed_group_by_time(
     else:
         return {i for i in traversed_indices if i <= found_boundary_idx}
     
-def find_long_lines(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
+def find_long_lines(subtitles: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
     """
     TO-DO: NOT YET IMPLEMENTED
 
     Identifies subtitle lines with a duration longer than a given threshold.
 
     Args:
-        subs (SSAFile): The loaded subtitle file.
+        subtitles (SSAFile): The loaded subtitle file.
         threshold_sec (float): The minimum duration in seconds for a line to be
                             considered "long".
 
@@ -499,20 +499,20 @@ def find_long_lines(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]
     """
     long_lines = []
     threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
-    for line in subs:
+    for line in subtitles:
         duration = line.end - line.start
         if duration > threshold_ms:
             long_lines.append((line.start, line.end))
     return long_lines
 
-def find_long_gaps(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
+def find_long_gaps(subtitles: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
     """
     TO-DO: NOT YET IMPLEMENTED
 
     Identifies gaps between consecutive subtitle lines longer than a given threshold.
 
     Args:
-        subs (SSAFile): The loaded subtitle file.
+        subtitles (SSAFile): The loaded subtitle file.
         threshold_sec (float): The minimum duration in seconds for a gap to be
                             considered "long".
 
@@ -520,17 +520,17 @@ def find_long_gaps(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]
         List[Tuple[int, int]]: A list of tuples, where each tuple contains the
         start of the gap (ms), and end of the gap (ms).
     """
-    if len(subs) < 2:
+    if len(subtitles) < 2:
         return []
 
-    subs.sort()
+    subtitles.sort()
 
     long_gaps = []
     threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
 
-    for i in range(len(subs) - 1):
-        current_line = subs[i]
-        next_line = subs[i+1]
+    for i in range(len(subtitles) - 1):
+        current_line = subtitles[i]
+        next_line = subtitles[i+1]
         
         gap_duration = next_line.start - current_line.end
         
