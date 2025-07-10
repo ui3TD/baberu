@@ -1,5 +1,6 @@
 import pysubs2
 from pysubs2 import SSAFile
+from typing import Tuple
 
 import logging
 
@@ -436,7 +437,6 @@ def _redistribute_backward(subtitles: SSAFile,
     
     return subtitles
 
-
 def _expand_mistimed_group_by_time(
         subtitles: SSAFile, 
         start_idx: int, 
@@ -482,9 +482,7 @@ def _expand_mistimed_group_by_time(
     else:
         return {i for i in traversed_indices if i <= found_boundary_idx}
     
-from typing import List, Tuple
-
-def find_long_lines(subs: SSAFile, threshold_sec: float) -> List[Tuple[int, int]]:
+def find_long_lines(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
     """
     TO-DO: NOT YET IMPLEMENTED
 
@@ -507,7 +505,7 @@ def find_long_lines(subs: SSAFile, threshold_sec: float) -> List[Tuple[int, int]
             long_lines.append((line.start, line.end))
     return long_lines
 
-def find_long_gaps(subs: SSAFile, threshold_sec: float) -> List[Tuple[int, int]]:
+def find_long_gaps(subs: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
     """
     TO-DO: NOT YET IMPLEMENTED
 
