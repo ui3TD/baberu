@@ -12,8 +12,8 @@ from baberu.setup import config_setup, logging_setup, args_setup
 from baberu.subtitling import sub_correction, sub_translation, sub_utils
 from baberu.tools import av_utils, file_utils
 from baberu.tools.file_utils import formats
-from baberu.LLMFactory.factory import AIToolFactory
-from baberu.LLMFactory.transcription.base import TranscriptionResult, WritableTranscriptionProvider
+from LLMFactory.factory import AIToolFactory
+from LLMFactory.transcription.base import TranscriptionResult, WritableTranscriptionProvider
 from baberu.transcription import transcript_conversion, transcript_segmented, transcript_chunked
 
 app_config: dict[str, Any] = None

@@ -7,9 +7,9 @@ import logging
 
 import pysubs2
 
-from baberu.LLMFactory.factory import AIToolFactory
-from baberu.LLMFactory.llm.base import LLMProvider
-from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscribedSegment, TranscribedWord
+from LLMFactory.factory import AIToolFactory
+from LLMFactory.llm.base import LLMProvider
+from LLMFactory.transcription.base import TranscriptionResult, TranscribedSegment, TranscribedWord
 from baberu.constants import CONTINUE_FLAG
 from baberu.subtitling.types import SubtitleLine
 

@@ -5,8 +5,8 @@ import logging
 import langcodes
 from pysubs2 import SSAFile, SSAEvent
 
-from baberu.LLMFactory.factory import AIToolFactory
-from baberu.LLMFactory.llm.base import LLMProvider
+from LLMFactory.factory import AIToolFactory
+from LLMFactory.llm.base import LLMProvider
 from baberu import constants
 
 

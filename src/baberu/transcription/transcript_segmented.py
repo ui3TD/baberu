@@ -6,8 +6,8 @@ from pysubs2 import SSAFile
 
 from baberu.subtitling import sub_utils, sub_correction
 from baberu.tools import av_utils
-from baberu.LLMFactory.factory import AIToolFactory
-from baberu.LLMFactory.transcription.base import TranscriptionResult
+from LLMFactory.factory import AIToolFactory
+from LLMFactory.transcription.base import TranscriptionResult
 from baberu.transcription import transcript_conversion, transcript_chunked
 
 logger = logging.getLogger(__name__)

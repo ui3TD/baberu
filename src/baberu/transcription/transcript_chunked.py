@@ -6,7 +6,7 @@ import tempfile
 import math
 from pydub import AudioSegment
 
-from baberu.LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment, TranscribedWord
+from LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment, TranscribedWord
 
 logger = logging.getLogger(__name__)
 
