@@ -435,3 +435,49 @@ def _redistribute_backward(subtitles: SSAFile,
         subtitles.events[idx].end = current_time
     
     return subtitles
+
+
+def _expand_mistimed_group_by_time(
+        subtitles: SSAFile, 
+        start_idx: int, 
+        direction: int, 
+        time_limit_sec: float, 
+        boundary_threshold_sec: float) -> set[int]:
+    """
+    TO-DO: NOT YET IMPLEMENTED
+    
+    Expands a group of mistimed lines by searching for the most distant 
+    adjacent boundary line within a time limit.
+    """
+    found_boundary_idx = None
+    
+    traversed_indices = set()
+    
+    time_traced_ms = 0
+    idx = start_idx
+    
+    end_condition = idx >= 0 if direction < 0 else idx < len(subtitles.events)
+    
+    while end_condition:
+        subtitle = subtitles.events[idx]
+        duration_ms = subtitle.end - subtitle.start
+        
+        if time_traced_ms + duration_ms > time_limit_sec * 1000:
+            break
+            
+        time_traced_ms += duration_ms
+        traversed_indices.add(idx)
+        
+        if duration_ms / 1000.0 > boundary_threshold_sec:
+            found_boundary_idx = idx
+            
+        idx += direction
+        end_condition = idx >= 0 if direction < 0 else idx < len(subtitles.events)
+
+    if found_boundary_idx is None:
+        return set()
+
+    if direction < 0: 
+        return {i for i in traversed_indices if i >= found_boundary_idx}
+    else:
+        return {i for i in traversed_indices if i <= found_boundary_idx}
