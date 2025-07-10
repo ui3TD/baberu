@@ -1,6 +1,13 @@
+try:
+    from openai import OpenAI
+except ImportError:
+    raise ImportError(
+        "The 'openai' package is required to use Deepseek models. "
+        "Install it with: pip install openai"
+    )
+
 from .base import LLMProvider
 import json
-from openai import OpenAI
 
 class DeepseekProvider(LLMProvider):
     def __init__(self, api_key: str, model: str, system_prompt: str = None):

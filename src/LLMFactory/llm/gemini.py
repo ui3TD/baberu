@@ -1,6 +1,13 @@
+try:
+    from google.genai import Client
+    from google.genai.types import Content, Part, SafetySetting, Tool, GoogleSearch, GenerateContentConfig
+except ImportError:
+    raise ImportError(
+        "The 'google-genai' package is required to use Gemini models. "
+        "Install it with: pip install google-genai"
+    )
+
 from .base import LLMProvider
-from google.genai import Client
-from google.genai.types import Content, Part, SafetySetting, Tool, GoogleSearch, GenerateContentConfig
 import json
 
 class GeminiProvider(LLMProvider):

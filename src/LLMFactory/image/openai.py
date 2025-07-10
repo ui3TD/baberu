@@ -1,5 +1,12 @@
+try:
+    from openai import OpenAI
+except ImportError:
+    raise ImportError(
+        "The 'openai' package is required to use OpenAI models. "
+        "Install it with: pip install openai"
+    )
+
 from .base import ImageProvider
-from openai import OpenAI
 from pathlib import Path
 import base64
 

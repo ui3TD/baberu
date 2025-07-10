@@ -1,4 +1,10 @@
-import requests
+try:
+    import requests
+except ImportError:
+    raise ImportError(
+        "The 'requests' package is required to use Fireworks AI models. "
+        "Install it with: pip install requests"
+    )
 
 from .base import TranscriptionProvider, TranscriptionResult, TranscribedWord, TranscribedSegment
 

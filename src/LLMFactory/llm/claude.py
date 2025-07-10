@@ -1,3 +1,11 @@
+try:
+    from anthropic import Anthropic
+except ImportError:
+    raise ImportError(
+        "The 'anthropic' package is required to use Anthropic models. "
+        "Install it with: pip install anthropic"
+    )
+
 from .base import LLMProvider
 import json
 from anthropic import Anthropic
