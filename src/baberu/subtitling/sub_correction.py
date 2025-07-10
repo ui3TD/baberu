@@ -481,3 +481,64 @@ def _expand_mistimed_group_by_time(
         return {i for i in traversed_indices if i >= found_boundary_idx}
     else:
         return {i for i in traversed_indices if i <= found_boundary_idx}
+    
+from typing import List, Tuple
+
+def find_long_lines(subs: SSAFile, threshold_sec: float) -> List[Tuple[int, int]]:
+    """
+    TO-DO: NOT YET IMPLEMENTED
+
+    Identifies subtitle lines with a duration longer than a given threshold.
+
+    Args:
+        subs (SSAFile): The loaded subtitle file.
+        threshold_sec (float): The minimum duration in seconds for a line to be
+                            considered "long".
+
+    Returns:
+        List[Tuple[int, int]]: A list of tuples, where each tuple contains
+        the start time (ms), and end time (ms) of a long line.
+    """
+    long_lines = []
+    threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
+    for line in subs:
+        duration = line.end - line.start
+        if duration > threshold_ms:
+            long_lines.append((line.start, line.end))
+    return long_lines
+
+def find_long_gaps(subs: SSAFile, threshold_sec: float) -> List[Tuple[int, int]]:
+    """
+    TO-DO: NOT YET IMPLEMENTED
+
+    Identifies gaps between consecutive subtitle lines longer than a given threshold.
+
+    Args:
+        subs (SSAFile): The loaded subtitle file.
+        threshold_sec (float): The minimum duration in seconds for a gap to be
+                            considered "long".
+
+    Returns:
+        List[Tuple[int, int]]: A list of tuples, where each tuple contains the
+        start of the gap (ms), and end of the gap (ms).
+    """
+    if len(subs) < 2:
+        return []
+
+    subs.sort()
+
+    long_gaps = []
+    threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
+
+    for i in range(len(subs) - 1):
+        current_line = subs[i]
+        next_line = subs[i+1]
+        
+        gap_duration = next_line.start - current_line.end
+        
+        if gap_duration > threshold_ms:
+            gap_start = current_line.end
+            gap_end = next_line.start
+            long_gaps.append((gap_start, gap_end))
+            
+    return long_gaps
