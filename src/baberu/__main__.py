@@ -115,6 +115,7 @@ def _convert(transcript: TranscriptionResult,
     soft_max_lines: int = config['soft_max_lines']
     hard_max_lines: int = config['hard_max_lines']
     hard_max_carryover: int = config['hard_max_carryover']
+    max_time_gap_sec: float = config['max_time_gap_sec']
     parsing_model: str = config['parsing_model']
 
     output_sub_file = Path(output_root + ".raw.ass")
@@ -134,6 +135,7 @@ def _convert(transcript: TranscriptionResult,
         soft_max_lines=soft_max_lines, 
         hard_max_lines=hard_max_lines, 
         hard_max_carryover=hard_max_carryover, 
+        max_time_gap_sec=max_time_gap_sec,
         model=parsing_model)
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Transcription converted: {output_sub_file}")
@@ -156,6 +158,7 @@ def _twopass(sub_data: SSAFile,
     soft_max_lines: int = parsing_config['soft_max_lines']
     hard_max_lines: int = parsing_config['hard_max_lines']
     hard_max_carryover: int = parsing_config['hard_max_carryover']
+    max_time_gap_sec: float = parsing_config['max_time_gap_sec']
     parsing_model: int = parsing_config['parsing_model']
     mistimed_seg_thresh_sec: float = mistiming_config['mistimed_seg_thresh_sec']
     seg_min_lines: int = mistiming_config['seg_min_lines']
@@ -205,6 +208,7 @@ def _twopass(sub_data: SSAFile,
         soft_max_lines=soft_max_lines, 
         hard_max_lines=hard_max_lines, 
         hard_max_carryover=hard_max_carryover, 
+        max_time_gap_sec=max_time_gap_sec,
         transcription_model=transcription_model, 
         parsing_model=parsing_model)
     sub_data = sub_correction.remove_empty(sub_data)

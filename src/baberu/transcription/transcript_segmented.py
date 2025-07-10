@@ -57,6 +57,7 @@ def transcribe_segments(subtitles: SSAFile,
                         soft_max_lines: int,
                         hard_max_lines: int,
                         hard_max_carryover: int,
+                        max_time_gap_sec: float,
                         transcription_model: str,
                         parsing_model: str) -> SSAFile:
     """Re-transcribes specified segments of audio and replaces the original subtitles.
@@ -138,6 +139,7 @@ def transcribe_segments(subtitles: SSAFile,
                 soft_max_lines=soft_max_lines, 
                 hard_max_lines=hard_max_lines, 
                 hard_max_carryover=hard_max_carryover, 
+                max_time_gap_sec=max_time_gap_sec,
                 model=parsing_model
             )
             

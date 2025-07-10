@@ -23,14 +23,16 @@ def write_transcript_json(json_data: dict[str, Any],
     logger.info(f"Audio transcription saved to {output_file}")
     return output_file
 
-def convert_transcript_to_subs(transcript: TranscriptionResult,
-                    delimiters: list[str] = [],
-                    soft_delimiters: list[str] = [],
-                    remove_text: list[str] = [],
-                    soft_max_lines: int = 20,
-                    hard_max_lines: int = 50,
-                    hard_max_carryover: int = 10,
-                    model: str | None = "") -> SSAFile:
+def convert_transcript_to_subs(
+        transcript: TranscriptionResult,
+        delimiters: list[str] = [],
+        soft_delimiters: list[str] = [],
+        remove_text: list[str] = [],
+        soft_max_lines: int = 20,
+        hard_max_lines: int = 50,
+        hard_max_carryover: int = 10,
+        max_time_gap_sec: float = 2,
+        model: str | None = "") -> SSAFile:
     """Converts a transcription object to a subtitle file object.
 
     This function processes word-level timestamp data, merges words into lines based
@@ -55,6 +57,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
             soft_max_lines=soft_max_lines, 
             hard_max_lines=hard_max_lines, 
             hard_max_carryover=hard_max_carryover, 
+            max_time_gap_sec=max_time_gap_sec,
             model=model)
 
         all_lines.extend(segment_lines)
@@ -83,6 +86,7 @@ def _delimit_segment(
         soft_max_lines: int,
         hard_max_lines: int,
         hard_max_carryover: int,
+        max_time_gap_sec: float,
         model: str | None
         ) -> list[SubtitleLine]:
     """Merges a list of word objects into formatted subtitle lines."""
@@ -91,6 +95,13 @@ def _delimit_segment(
     current_words: list[TranscribedWord] = []
 
     for word in segment.words:
+        # Break on time gap
+        if current_words and word.start - current_words[-1].end > max_time_gap_sec:
+            sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
+            if sub_line.text not in soft_delimiters + delimiters:
+                sub_lines.append(sub_line)
+            current_words = []
+
         current_words.append(word)
         current_text: str = "".join(w.text for w in current_words)
         force_break = False
