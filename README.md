@@ -31,7 +31,7 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 1.  **Python:** Python 3.8 or higher recommended.
 2.  **FFmpeg:** Required for audio extraction and potential media processing. Ensure `ffmpeg` is installed and accessible in your system's PATH.
 3.  **API Keys:**
-    `baberu` integrates with various AI services. You only need to set up the keys for the services you intend to use. It is recommended to set these as environment variables.
+    `baberu` integrates with various AI services. You only need to set up the keys for the services you intend to use. It is required to set these as environment variables.
 
     **Transcription Providers (for `--speech-to-text` and `--retranscribe`):**
     *   **ElevenLabs:** For models containing `scribe`.
