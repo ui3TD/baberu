@@ -276,7 +276,12 @@ def _contextualize(sub_data: SSAFile,
             context_data = sub_translation.load_context(context_file)
         else:
             logger.info(f"Generating context file... Output: {context_file}")
-            context_data = sub_translation.generate_context(sub_data, model, Path(output_root).name, lang_from, lang_to)
+            context_data = sub_translation.generate_context(
+                subtitles=sub_data, 
+                model=model, 
+                filename=Path(output_root).name, 
+                lang_from=lang_from, 
+                lang_to=lang_to)
             sub_translation.write_lines([context_data], context_file)
 
             if confirm_auto_context:
@@ -326,8 +331,24 @@ def _translate(sub_data: SSAFile,
         start_index = 0
 
     logger.info(f"Initializing translation to: {output_sub_file}")
-    txt_data = sub_translation.translate(sub_data, partial_file, context, model, lang_from, lang_to, context_lines, batch_lines, discard_lines, translate_retries, server_retries, max_cont_lines, segment)
-    sub_data = sub_utils.replace_lines(txt_data[start_index:], sub_data, start_index)
+    txt_data = sub_translation.translate(
+        sub_file=sub_data, 
+        output_file=partial_file, 
+        context_prompt=context, 
+        model=model, 
+        lang_from=lang_from, 
+        lang_to=lang_to, 
+        context_lines=context_lines, 
+        batch_lines=batch_lines, 
+        discard_lines=discard_lines, 
+        translate_retries=translate_retries, 
+        server_retries=server_retries, 
+        max_cont_lines=max_cont_lines, 
+        segment=segment)
+    sub_data = sub_utils.replace_lines(
+        text_lines=txt_data[start_index:], 
+        source_subs=sub_data, 
+        idx=start_index)
 
     if output_sub_file.suffix == ".ass":
         sub_data = sub_utils.md_to_ass(sub_data)
@@ -358,7 +379,13 @@ def _pad(sub_data: SSAFile,
         return sub_data, output_sub_file
 
     logger.debug(f"Padding subtitles... Output: {output_sub_file}")
-    sub_data = sub_correction.apply_timing_standards(sub_data, max_lead_out_sec, max_lead_in_sec, max_cps, min_sec, segment)
+    sub_data = sub_correction.apply_timing_standards(
+        subtitles=sub_data, 
+        max_lead_out_sec=max_lead_out_sec, 
+        max_lead_in_sec=max_lead_in_sec, 
+        max_cps=max_cps, 
+        min_sec=min_sec, 
+        segment=segment)
 
     sub_utils.write(sub_data, output_sub_file)
     logger.info(f"Subtitles padded: {output_sub_file}")
@@ -544,7 +571,12 @@ def main():
         if not args.retranscribe:
             args.retranscribe = "auto"
         
-        sub_data, segment, sub_file = _twopass(sub_data, audio_file, output_root, lang_from, segment)
+        sub_data, segment, sub_file = _twopass(
+            sub_data=sub_data, 
+            audio_file=audio_file, 
+            output_root=output_root, 
+            lang=lang_from, 
+            segment=segment)
 
     # Fix mistimed segments
     if sub_data and (args.fix or args.auto_pilot):
@@ -555,8 +587,21 @@ def main():
         if not args.translate:
             args.translate = "auto"
 
-        context_data = _contextualize(sub_data, args.translate, output_root, websearch_model, lang_from, lang_to)            
-        sub_data, sub_file = _translate(sub_data, context_data, output_root, model, lang_from, lang_to, segment)
+        context_data = _contextualize(
+            sub_data=sub_data, 
+            instruction=args.translate, 
+            output_root=output_root, 
+            model=websearch_model, 
+            lang_from=lang_from, 
+            lang_to=lang_to)            
+        sub_data, sub_file = _translate(
+            sub_data=sub_data, 
+            context=context_data, 
+            output_root=output_root, 
+            model=model, 
+            lang_from=lang_from, 
+            lang_to=lang_to, 
+            segment=segment)
 
     # Add padding time to subtitles
     if sub_data and (args.pad or args.auto_pilot):
