@@ -82,6 +82,7 @@ def _transcribe(audio_file: Path,
         with open(json_file, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         json_data = transcript_provider_type.validate(json_data)
+        transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
     else:
         logger.info(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
