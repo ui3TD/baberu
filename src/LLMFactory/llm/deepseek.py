@@ -38,7 +38,7 @@ class DeepseekProvider(LLMProvider):
             model=self.model,
             input=prompt_messages
         )
-        self.logger.debug(f"Deepseek response:\n{json.dumps(completion, indent=2)}")
+        self.logger.debug(f"Deepseek response:\n{completion.model_dump_json()}")
 
         response = ""
         if return_prefill:

@@ -1,5 +1,6 @@
 try:
     from openai import OpenAI
+    from openai.types.responses import Response
 except ImportError:
     raise ImportError(
         "The 'openai' package is required to use OpenRouter models. "
@@ -38,11 +39,11 @@ class OpenRouterProvider(LLMProvider):
             
         self.logger.debug(f"Openrouter prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
 
-        completion = self.client.responses.create(
+        completion: Response = self.client.responses.create(
             model=self.model,
             input=prompt_messages
         )
-        self.logger.debug(f"Openrouter response:\n{json.dumps(completion, indent=2)}")
+        self.logger.debug(f"Openrouter response:\n{completion.model_dump_json()}")
 
         response = ""
         if return_prefill:

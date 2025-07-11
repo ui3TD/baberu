@@ -33,7 +33,7 @@ class GrokProvider(LLMProvider):
             model=self.model,
             input=prompt_messages
         )
-        self.logger.debug(f"Grok response:\n{json.dumps(completion, indent=2)}")
+        self.logger.debug(f"Grok response:\n{completion.model_dump_json()}")
         response = completion.output_text
 
         return response

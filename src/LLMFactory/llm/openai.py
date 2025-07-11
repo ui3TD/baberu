@@ -33,7 +33,7 @@ class OProvider(LLMProvider):
             input=prompt_messages,
             reasoning={"effort": "high"}
         )
-        self.logger.debug(f"OpenAI response:\n{json.dumps(completion, indent=2)}")
+        self.logger.debug(f"OpenAI response:\n{completion.model_dump_json()}")
         response = completion.output_text
 
         return response
@@ -69,6 +69,7 @@ class GPTProvider(LLMProvider):
             input=prompt_messages,
             tools=search_tool
         )
+        self.logger.debug(f"OpenAI response:\n{completion.model_dump_json()}")
         response = completion.output_text
 
         return response

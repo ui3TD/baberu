@@ -9,6 +9,7 @@ except ImportError:
 from .base import ImageProvider
 from pathlib import Path
 import base64
+import json
 
 class OpenAIProvider(ImageProvider):
     def __init__(self, api_key: str, model: str):
@@ -30,6 +31,7 @@ class OpenAIProvider(ImageProvider):
         elif "gpt" in self.model.lower():
             params["quality"] = "high"
         
+        self.logger.debug(f"Prompting API: {json.dumps(params, indent=2)}")
         response = self.client.images.generate(**params)
         self.logger.debug(f"Response from API: {response.model_dump_json()}")
 
@@ -49,7 +51,7 @@ class OpenAIProvider(ImageProvider):
             url: Source URL of the image
             file_name: Destination file name for saving
         """
-        self.logger.info(f"Downloading image from {url}")
+        self.logger.debug(f"Downloading image from {url}")
 
         try:
             import requests
@@ -59,7 +61,7 @@ class OpenAIProvider(ImageProvider):
             with open(file_name, "wb") as f:
                 f.write(response.content)
 
-            self.logger.info(f"Image downloaded and saved as '{file_name}'")
+            self.logger.debug(f"Image downloaded and saved as '{file_name}'")
             return
         except Exception as e:
             self.logger.error(f"Error downloading image: {str(e)}")

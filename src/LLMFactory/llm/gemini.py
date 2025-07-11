@@ -8,7 +8,6 @@ except ImportError:
     )
 
 from .base import LLMProvider
-import json
 
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str, model: str, system_prompt: str = None):
@@ -64,12 +63,10 @@ class GeminiProvider(LLMProvider):
             contents=prompt_messages,
             config=GenerateContentConfig(**config_params)
         )
-        self.logger.debug(f"Gemini response:\n{json.dumps(response, indent=2)}")
+        self.logger.debug(f"Gemini response:\n{response.model_dump_json()}")
 
         if not hasattr(response, 'text') or not response.text:
             self.logger.warning("Gemini returned empty or invalid response")
-            if hasattr(response, 'model_dump_json'):
-                self.logger.warning(f"Response details: {response.model_dump_json()}")
             return ""
 
         return response.text

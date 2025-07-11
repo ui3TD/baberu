@@ -18,18 +18,20 @@ class ImagenProvider(ImageProvider):
         self.client = Client(api_key=self.api_key)
     
     def prompt(self, prompt: str, file_path: Path, **kwargs) -> None:
-
-        response = self.client.models.generate_images(
-            model=self.model,
-            prompt=prompt,
-            config=GenerateImagesConfig(
+        config = GenerateImagesConfig(
                 number_of_images=1,
                 aspect_ratio="1:1",
                 safety_filter_level=SafetyFilterLevel.BLOCK_LOW_AND_ABOVE,
                 person_generation=PersonGeneration.ALLOW_ADULT
             )
+        self.logger.debug(f"Prompting API: {prompt}")
+        self.logger.debug(f"Prompt config: {config.model_dump_json()}")
+        response = self.client.models.generate_images(
+            model=self.model,
+            prompt=prompt,
+            config=config
         )
-        self.logger.info(response)
+        self.logger.debug(response.model_dump_json())
         image = Image.open(BytesIO( response.generated_images[0].image.image_bytes))
         response = prompt
         image.save(file_path)

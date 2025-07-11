@@ -1,5 +1,6 @@
 try:
     from anthropic import Anthropic
+    from anthropic.types import Message
 except ImportError:
     raise ImportError(
         "The 'anthropic' package is required to use Anthropic models. "
@@ -47,7 +48,7 @@ class ClaudeProvider(LLMProvider):
                 ]
         self.logger.debug(f"Claude prompt messages:\n{json.dumps(prompt_messages, indent=2)}")
 
-        completion = self.client.messages.create(
+        completion: Message = self.client.messages.create(
             model=self.model,
             max_tokens=30000,
             system=system_prompt,
@@ -60,7 +61,7 @@ class ClaudeProvider(LLMProvider):
             tools=search_tool,
             messages=prompt_messages,
         )
-        self.logger.debug(f"Claude response:\n{json.dumps(completion, indent=2)}")
+        self.logger.debug(f"Claude response:\n{completion.model_dump_json()}")
         response = ""
 
         for block in completion.content:
