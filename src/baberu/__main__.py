@@ -24,7 +24,7 @@ def _download(url: Path,
               output_dir: Path | None = None) -> Path:
     """Downloads a file from a URL if it doesn't already exist."""
     if output_file and output_file.exists():
-        logger.warning(f"Download skipped. File already exists: {output_file}")
+        logger.info(f"Download skipped. File already exists: {output_file}")
         return output_file
 
     logger.info(f"Downloading from {url}...")
@@ -56,7 +56,7 @@ def _extract(video_file: Path,
     output_audio_file: Path = output_file or Path(f"{output_root}.{extension}")
     
     if output_audio_file.exists():
-        logger.warning(f"Extraction skipped. File already exists: {output_audio_file}")
+        logger.info(f"Extraction skipped. File already exists: {output_audio_file}")
         return output_audio_file
     
     logger.info(f"Extracting audio from: {video_file} to {output_audio_file}")
@@ -78,7 +78,7 @@ def _transcribe(audio_file: Path,
     transcript_provider_type = AIToolFactory.get_transcription_provider_type(model)
 
     if json_file.exists():
-        logger.warning(f"Transcription skipped. File already exists: {json_file}")
+        logger.info(f"Transcription skipped. File already exists: {json_file}")
         with open(json_file, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         json_data = transcript_provider_type.validate(json_data)
@@ -123,7 +123,7 @@ def _convert(transcript: TranscriptionResult,
     sub_data: SSAFile = None
 
     if output_sub_file.exists() :
-        logger.warning(f"Conversion skipped. File already exists: {output_sub_file}")
+        logger.info(f"Conversion skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
         return sub_data
 
@@ -174,7 +174,7 @@ def _twopass(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".2pass_custom.ass")
 
         if output_sub_file.exists():
-            logger.warning(f"Retranscription skipped. File already exists: {output_sub_file}")
+            logger.info(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             new_lines = len(sub_data.events) - initial_lines
             segment = [min(segment), max(segment) + new_lines]
@@ -186,7 +186,7 @@ def _twopass(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".2pass.ass")
     
         if output_sub_file.exists():
-            logger.warning(f"Retranscription skipped. File already exists: {output_sub_file}")
+            logger.info(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             return sub_data, segment, output_sub_file
             
@@ -244,7 +244,7 @@ def _fix(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".fixed.ass")
 
     if output_sub_file.exists():
-        logger.warning(f"Subtitle Fix skipped. File already exists: {output_sub_file}")
+        logger.info(f"Subtitle Fix skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
         return sub_data, segment, output_sub_file
     
@@ -314,7 +314,7 @@ def _translate(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".tr_custom.ass")
 
         if output_sub_file.exists():
-            logger.warning(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
+            logger.info(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             return sub_data, output_sub_file
         
@@ -324,7 +324,7 @@ def _translate(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".en.ass")
 
         if output_sub_file.exists():
-            logger.warning(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
+            logger.info(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
             return sub_data, output_sub_file
 
@@ -375,7 +375,7 @@ def _pad(sub_data: SSAFile,
         output_sub_file = Path(output_root + ".padded.ass")
 
     if output_sub_file.exists():
-        logger.warning(f"Subtitle padding skipped. File already exists: {output_sub_file}")
+        logger.info(f"Subtitle padding skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
         return sub_data, output_sub_file
 
