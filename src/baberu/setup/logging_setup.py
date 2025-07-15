@@ -22,6 +22,11 @@ def setup_logging(
         file_level (str): The logging level for file output (e.g., 'DEBUG').
         log_to_file (bool): Whether to enable file logging.
     """
+    if console_level.upper() == "INFO":
+        QUIET_MODULES = ['google.genai', 'httpx', 'openai', 'anthropic']
+        for module in QUIET_MODULES:
+            logging.getLogger(module).setLevel(logging.WARNING)
+
     logger = logging.getLogger()
     logger.setLevel(logging.NOTSET)
     if logger.hasHandlers():
