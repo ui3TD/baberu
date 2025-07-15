@@ -140,6 +140,12 @@ def translate(sub_file: SSAFile,
                     except KeyboardInterrupt:
                         logger.warning("\nTranslation aborted by user. Saving partial results...")
                         raise
+                    except ValueError:
+                        if server_attempt < (server_retries - 1):
+                            logger.warning(f"Invalid Response Error (attempt {server_attempt+1}/{server_retries}). Retrying...")
+                        else:
+                            logger.error(f"Invalid Response Error (attempt {server_attempt+1}/{server_retries})")
+                            raise
                     except ConnectionError:
                         if server_attempt < (server_retries - 1):
                             logger.warning(f"Connection Error (attempt {server_attempt+1}/{server_retries}). Retrying...")

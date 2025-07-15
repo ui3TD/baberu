@@ -67,6 +67,6 @@ class GeminiProvider(LLMProvider):
 
         if not hasattr(response, 'text') or not response.text:
             self.logger.warning("Gemini returned empty or invalid response")
-            return ""
+            raise ValueError
 
         return response.text
