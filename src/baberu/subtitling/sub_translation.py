@@ -174,8 +174,9 @@ def translate(sub_file: SSAFile,
                 
                 # If line count doesn't match, retry with more explicit instructions
                 logger.warning(f"Translation attempt {translate_attempt+1} failed: expected {len(current_batch)} lines, got {len(new_lines)}. Retrying...")
-
-                prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
+                
+                if abs(len(current_batch) - len(new_lines)) <= 10:
+                    prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
 
             # Handle line count mismatch after all retries
             if len(new_lines) != len(current_batch):
