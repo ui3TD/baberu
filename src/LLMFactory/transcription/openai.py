@@ -13,6 +13,7 @@ from .base import TranscriptionResult, TranscribedWord, TranscribedSegment, Writ
 from pathlib import Path
 from typing import Any
 import logging
+from io import BytesIO
 
 class WhisperProvider(WritableTranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -20,7 +21,7 @@ class WhisperProvider(WritableTranscriptionProvider):
         self.client: OpenAI = OpenAI(
             api_key=self.api_key,
         )
-        self.max_size_bytes = 25 * 1024 * 1024  # 25MB in bytes
+        self.max_size_bytes = round(3.5 * 1024 * 1024)  # 25MB in bytes
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
 
@@ -34,15 +35,15 @@ class WhisperProvider(WritableTranscriptionProvider):
             self.logger.error(f"File size {file_size / (1024 * 1024):.2f} exceeds model's max size {self.max_size_bytes / (1024 * 1024):.2f}.")
             raise ValueError
         
-        audio_data= open(audio_file, "rb")
-        transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
-            file=audio_data,
-            model=self.model,
-            language=lang,
-            response_format="verbose_json",
-            timestamp_granularities=["word", "segment"],
-            timeout = 3600
-        )
+        with open(audio_file, "rb") as audio_data:
+            transcription: TranscriptionVerbose = self.client.audio.transcriptions.create(
+                file=audio_data,
+                model=self.model,
+                language=lang,
+                response_format="verbose_json",
+                timestamp_granularities=["word", "segment"],
+                timeout = 3600
+            )
         self.logger.debug(f"OpenAI API response: {transcription.model_dump_json()}")
         return transcription.model_dump()
 
@@ -63,14 +64,16 @@ class WhisperProvider(WritableTranscriptionProvider):
                 continue
 
             # Create the segment dictionary for the JSON output
-            segment_text = segment_obj.text
+            segment_start = segment_obj.words[0].start
+            segment_end = segment_obj.words[-1].end
+            segment_text = "".join(word.text for word in segment_obj.words)
             all_segments_json.append({
                 "id": i,
-                "start": segment_obj.start,
-                "end": segment_obj.end,
-                "text": segment_text,
+                "start": segment_start,
+                "end": segment_end,
+                "text": segment_text.strip(),
             })
-            full_text_parts.append(segment_text)
+            full_text_parts.append(segment_text.strip())
 
             # Create word dictionaries for the JSON output
             for word_obj in segment_obj.words:
