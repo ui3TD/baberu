@@ -81,7 +81,7 @@ def extract_audio(video_file: Path,
         logger.debug(f"Audio extracted successfully to {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        logger.error(f"Error extracting audio: {str(e)}")
+        logger.error(f"Error extracting audio: {e.stderr.decode()}")
         raise
 
 def get_audio_codec(media_file: Path) -> str | None:
@@ -129,12 +129,11 @@ def cut_audio(audio_file: Path,
             ffmpeg
             .input(str(audio_file), ss=start_time_sec, t=duration_sec)
             .output(str(output_path), audio_codec="libopus", loglevel="error")
-            .run(quiet=False, overwrite_output=False)
+            .run(quiet=False, overwrite_output=False, capture_stderr=True)
         )
         return output_path
     except ffmpeg.Error as e:
-        error_message = e.stderr.decode()
-        logger.error(f"Error extracting audio segment with ffmpeg-python: {error_message}")
+        logger.error(f"Error extracting audio segment with ffmpeg-python: {e.stderr.decode()}")
         raise
 
 def hardcode_subtitles(video_file: Path,
@@ -179,7 +178,7 @@ def hardcode_subtitles(video_file: Path,
         logger.info(f"Subtitles hardcoded successfully to {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        logger.error(f"Error hardcoding subtitles: {str(e)}")
+        logger.error(f"Error hardcoding subtitles: {e.stderr.decode()}")
         raise
 
 def audio_to_video(image_file: Path,
@@ -220,5 +219,5 @@ def audio_to_video(image_file: Path,
         logger.info(f"Video created successfully at {output_file}")
         return output_file
     except ffmpeg.Error as e:
-        logger.error(f"Error creating video: {e.stderr}")
+        logger.error(f"Error creating video: {e.stderr.decode()}")
         raise
