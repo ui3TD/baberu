@@ -129,7 +129,7 @@ def cut_audio(audio_file: Path,
             ffmpeg
             .input(str(audio_file), ss=start_time_sec, t=duration_sec)
             .output(str(output_path), audio_codec="libopus", loglevel="error")
-            .run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            .run(quiet=False, overwrite_output=False)
         )
         return output_path
     except ffmpeg.Error as e:
@@ -215,7 +215,7 @@ def audio_to_video(image_file: Path,
                 preset='ultrafast',
                 tune='stillimage'
             )
-            .run(quiet=False, overwrite_output=True)
+            .run(quiet=False, overwrite_output=False)
         )
         logger.info(f"Video created successfully at {output_file}")
         return output_file
