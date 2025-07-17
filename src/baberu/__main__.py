@@ -290,6 +290,7 @@ def _contextualize(sub_data: SSAFile,
                 context_data = sub_translation.load_context(context_file)
     else:
         context_data = sub_translation.load_context(Path(instruction))
+        context_file = instruction
     
     logger.info(f"Context loaded: {context_file}")
     return context_data
