@@ -4,7 +4,6 @@ import logging
 
 import yt_dlp
 import ffmpeg
-from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)
 
@@ -126,23 +125,16 @@ def cut_audio(audio_file: Path,
         The path to the created audio segment.
     """
     try:
-        audio = AudioSegment.from_file(str(audio_file))
-
-        start_ms = start_time_sec * 1000
-        end_ms = (start_time_sec + duration_sec) * 1000
-
-        audio_segment = audio[start_ms:end_ms]
-
-        # Export the segment to Opus format
-        audio_segment.export(
-            str(output_path),
-            format="opus", 
-            codec="libopus"
+        (
+            ffmpeg
+            .input(str(audio_file), ss=start_time_sec, t=duration_sec)
+            .output(str(output_path), audio_codec="libopus", loglevel="error")
+            .run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
         )
-        
         return output_path
-    except Exception as e:
-        logger.error(f"Error extracting audio segment with pydub: {e}")
+    except ffmpeg.Error as e:
+        error_message = e.stderr.decode()
+        logger.error(f"Error extracting audio segment with ffmpeg-python: {error_message}")
         raise
 
 def hardcode_subtitles(video_file: Path,
