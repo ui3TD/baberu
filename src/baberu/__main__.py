@@ -289,8 +289,8 @@ def _contextualize(sub_data: SSAFile,
                 input(f"Context generated:\n{context_data}\n\nContext automatically generated and saved to:\n  '{context_file}'\nPlease review the file if needed. Press any key to continue or Ctrl-C to cancel...")
                 context_data = sub_translation.load_context(context_file)
     else:
-        context_data = sub_translation.load_context(Path(instruction))
-        context_file = instruction
+        context_file = Path(instruction)
+        context_data = sub_translation.load_context(context_file)
     
     logger.info(f"Context loaded: {context_file}")
     return context_data
