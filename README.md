@@ -4,7 +4,7 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 
 ## Overview
 
-"baberu" is a command-line utility for automating subtitle generation, refinement, and translation. It processes media URLs, local video/audio files, or existing transcripts/subtitles through a configurable pipeline. Using external APIs like ElevenLabs and Google Gemini, it produces refined subtitles, typically in `.ass` format, handling steps from download and transcription to timing correction and translation.
+"baberu" is a command-line tool for generating and translating subtitles from videos, audio files, or existing transcripts. It automates steps like audio extraction, speech-to-text transcription, subtitle timing, corrections for readability, translation, and padding, using AI services such as ElevenLabs for transcription and models like Gemini or GPT for translation. Use it to create accurate subtitles quickly, with options for full pipelines or targeted fixes, and output in formats like ASS or hardcoded videos.
 
 ## Features
 
