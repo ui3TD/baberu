@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Tuple
 from pathlib import Path
 import logging
 
@@ -72,13 +72,15 @@ def extract_audio(video_file: Path,
     
     # Extract audio using ffmpeg
     try:
-        (
+        run_output: Tuple[bytes, bytes] = (
             ffmpeg
             .input(str(video_file))
             .output(str(output_file), acodec='copy', vn=None)
-            .run(quiet=False, overwrite_output=False)
+            .run(quiet=True, overwrite_output=False)
         )
-        logger.debug(f"Audio extracted successfully to {output_file}")
+        _, err = run_output
+        if err:
+            logger.debug(err.decode())
         return output_file
     except ffmpeg.Error as e:
         logger.error(f"Error extracting audio: {e.stderr.decode()}")
@@ -96,7 +98,7 @@ def get_audio_codec(media_file: Path) -> str | None:
     logger.debug(f"Probing {media_file} for audio stream...")
     try:
         # Use ffmpeg.probe to get media information as a dictionary
-        probe_data = ffmpeg.probe(str(media_file), select_streams='a:0')
+        probe_data: dict[str, Any] = ffmpeg.probe(str(media_file), select_streams='a:0')
         logger.debug(f"Probe data for {media_file}: {probe_data}")
 
         # The 'streams' list should contain the first audio stream
@@ -125,12 +127,15 @@ def cut_audio(audio_file: Path,
         The path to the created audio segment.
     """
     try:
-        (
+        run_output: Tuple[bytes, bytes] = (
             ffmpeg
             .input(str(audio_file), ss=start_time_sec, t=duration_sec)
             .output(str(output_path), audio_codec="libopus", loglevel="error")
             .run(quiet=True, overwrite_output=False)
         )
+        _, err = run_output
+        if err:
+            logger.debug(err.decode())
         return output_path
     except ffmpeg.Error as e:
         logger.error(f"Error extracting audio segment with ffmpeg-python: {e.stderr.decode()}")
@@ -162,7 +167,7 @@ def hardcode_subtitles(video_file: Path,
         filtered_video = video_stream.filter('subtitles', subtitle_file.relative_to(Path.cwd(), walk_up=True).as_posix())
 
         # Output the filtered video AND the original audio
-        (
+        run_output: Tuple[bytes, bytes] = (
             ffmpeg
             .output(
                 filtered_video,      # Use the filtered video stream
@@ -173,8 +178,11 @@ def hardcode_subtitles(video_file: Path,
                 acodec='aac',     
                 preset='veryfast'
             )
-            .run(quiet=False, overwrite_output=False)
+            .run(quiet=True, overwrite_output=False)
         )
+        _, err = run_output
+        if err:
+            logger.debug(err.decode())
         logger.info(f"Subtitles hardcoded successfully to {output_file}")
         return output_file
     except ffmpeg.Error as e:
@@ -202,7 +210,7 @@ def audio_to_video(image_file: Path,
         audio_stream = ffmpeg.input(str(audio_file))
 
         # Build the output command
-        (
+        run_output: Tuple[bytes, bytes] = (
             ffmpeg
             .output(
                 image_stream,
@@ -214,8 +222,11 @@ def audio_to_video(image_file: Path,
                 preset='ultrafast',
                 tune='stillimage'
             )
-            .run(quiet=False, overwrite_output=False)
+            .run(quiet=True, overwrite_output=False)
         )
+        _, err = run_output
+        if err:
+            logger.debug(err.decode())
         logger.info(f"Video created successfully at {output_file}")
         return output_file
     except ffmpeg.Error as e:
