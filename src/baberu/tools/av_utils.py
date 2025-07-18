@@ -36,9 +36,10 @@ def download(url: str,
         'format': 'bestaudio+worstvideo/best',
         'outtmpl': output_template,
         'retries': 500,
-        'quiet': False,
+        'quiet': True,
         'no_warnings': False,
-        'ignoreerrors': False
+        'ignoreerrors': False,
+        'logger': logger
     }
     
     # Download the video
