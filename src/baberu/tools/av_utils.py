@@ -129,7 +129,7 @@ def cut_audio(audio_file: Path,
             ffmpeg
             .input(str(audio_file), ss=start_time_sec, t=duration_sec)
             .output(str(output_path), audio_codec="libopus", loglevel="error")
-            .run(quiet=False, overwrite_output=False, capture_stderr=True)
+            .run(quiet=True, overwrite_output=False)
         )
         return output_path
     except ffmpeg.Error as e:
