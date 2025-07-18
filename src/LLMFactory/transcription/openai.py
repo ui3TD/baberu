@@ -21,7 +21,7 @@ class WhisperProvider(WritableTranscriptionProvider):
         self.client: OpenAI = OpenAI(
             api_key=self.api_key,
         )
-        self.max_size_bytes = round(3.5 * 1024 * 1024)  # 25MB in bytes
+        self.max_size_bytes = round(25 * 1024 * 1024)  # 25MB in bytes
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
 
