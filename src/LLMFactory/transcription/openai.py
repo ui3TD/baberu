@@ -13,7 +13,6 @@ from .base import TranscriptionResult, TranscribedWord, TranscribedSegment, Writ
 from pathlib import Path
 from typing import Any
 import logging
-from io import BytesIO
 
 class WhisperProvider(WritableTranscriptionProvider):
     def __init__(self, api_key: str, model: str):
