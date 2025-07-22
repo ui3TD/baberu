@@ -77,7 +77,7 @@ def extract_audio(video_file: Path,
             ffmpeg
             .input(str(video_file))
             .output(str(output_file), acodec='copy', vn=None)
-            .run(quiet=True, overwrite_output=False)
+            .run(quiet=True, overwrite_output=True)
         )
         _, err = run_output
         if err:
@@ -179,7 +179,7 @@ def hardcode_subtitles(video_file: Path,
                 acodec='aac',     
                 preset='veryfast'
             )
-            .run(quiet=True, overwrite_output=False)
+            .run(quiet=True, overwrite_output=True)
         )
         _, err = run_output
         if err:
@@ -223,7 +223,7 @@ def audio_to_video(image_file: Path,
                 preset='ultrafast',
                 tune='stillimage'
             )
-            .run(quiet=True, overwrite_output=False)
+            .run(quiet=True, overwrite_output=True)
         )
         _, err = run_output
         if err:
