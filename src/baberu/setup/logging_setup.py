@@ -33,7 +33,7 @@ def setup_logging(
         logger.handlers.clear()
 
     console_formatter = logging.Formatter(
-        "[%(levelname)s] %(message)s (%(name)s)"
+        "[%(levelname)s] %(message)s"
     )
     file_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(message)s (%(name)s)"
