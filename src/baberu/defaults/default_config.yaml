@@ -40,6 +40,7 @@ mistimed_segs:
 translation:
   default_model: "gemini-2.5-pro"
   websearch_model: "gemini-2.5-pro"
+  fallback_model: "o3"
   default_lang_to: "en"
   context_lines: 100
   batch_lines: 50

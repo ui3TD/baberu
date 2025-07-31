@@ -310,6 +310,7 @@ def _translate(sub_data: SSAFile,
     translate_retries: int = config['translate_retries']
     server_retries: int = config['server_retries']
     max_cont_lines: int = config['max_cont_lines']
+    fallback_model: str = config['fallback_model']
     
     if segment:
         output_sub_file = Path(output_root + ".tr_custom.ass")
@@ -338,6 +339,7 @@ def _translate(sub_data: SSAFile,
         output_file=partial_file, 
         context_prompt=context, 
         model=model, 
+        fallback_model=fallback_model,
         lang_from=lang_from, 
         lang_to=lang_to, 
         context_lines=context_lines, 

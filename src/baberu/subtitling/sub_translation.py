@@ -16,6 +16,7 @@ def translate(sub_file: SSAFile,
               output_file: Path, 
               context_prompt: str, 
               model: str,
+              fallback_model: str,
               lang_from: str,
               lang_to: str,
               context_lines: int = 100,
@@ -34,6 +35,7 @@ def translate(sub_file: SSAFile,
         output_file: Path to save the translated subtitle text.
         context_prompt: General context to guide the translation.
         model: The LLM model to use for translation.
+        fallback_model: The LLM model to use for translation if the default on fails.
         lang_from: BCP 47 code for the source language.
         lang_to: BCP 47 code for the target language.
         context_lines: Number of previous translations to use as context.
@@ -47,9 +49,10 @@ def translate(sub_file: SSAFile,
     Returns:
         A list of the translated subtitle lines.
     """
+    current_model: str = model
     starting_index: int = 0
     last_api_call_time: float = 0
-    is_openrouter_free: bool = model.startswith('google/gemini-2.5-pro-exp')
+    is_openrouter_free: bool = current_model.startswith('google/gemini-2.5-pro-exp')
     def_time_per_bath: float = 220 if is_openrouter_free else 81
 
     if segment:
@@ -77,7 +80,7 @@ def translate(sub_file: SSAFile,
     
     # Initialize LLM client
     system_prompt: str = _set_sys_prompt(lang_from, lang_to)
-    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=system_prompt)
+    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
 
     start_time: float = time.perf_counter()
 
@@ -164,6 +167,9 @@ def translate(sub_file: SSAFile,
                 
                 # Check if line count matches
                 if len(new_lines) == len(current_batch):
+                    if current_model == fallback_model:
+                        current_model = model
+                        llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
                     break
                 
                 # If line count doesn't match, retry with more explicit instructions
@@ -171,10 +177,16 @@ def translate(sub_file: SSAFile,
 
                 if abs(len(current_batch) - len(new_lines)) <= 10:
                     prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
+                
+                if current_model != fallback_model:
+                    logger.warning(f"Warning: {current_model} failed to get exact translation line count after {translate_retries} attempts. Falling back to model: {fallback_model}")
+                    translate_attempt = 0
+                    current_model = fallback_model
+                    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
 
             # Handle line count mismatch after all retries
             if len(new_lines) != len(current_batch):
-                logger.warning(f"Warning: Failed to get exact translation line count after {translate_retries} attempts. Proceeding with best effort.")
+                logger.warning(f"Warning: {current_model} failed to get exact translation line count after {translate_retries} attempts. Proceeding with best effort.")
                 new_lines = _force_line_count(new_lines, current_batch)
 
             # Exclude discarded lines
