@@ -32,13 +32,16 @@ def setup_logging(
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    formatter = logging.Formatter(
+    console_formatter = logging.Formatter(
+        "[%(levelname)s] %(message)s (%(name)s)"
+    )
+    file_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(message)s (%(name)s)"
     )
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(console_level.upper())
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
     logging.debug(f"Console logging configured at level {console_level.upper()}.")
@@ -54,7 +57,7 @@ def setup_logging(
             log_file_path, maxBytes=1_000_000, backupCount=5, encoding='utf-8'
         )
         file_handler.setLevel(file_level.upper())
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
         if log_file_path.resolve() != log_file_path:
