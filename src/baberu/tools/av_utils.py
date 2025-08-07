@@ -44,10 +44,13 @@ def download(url: str,
     
     # Download the video
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info: dict[str, Any] = ydl.extract_info(url, download=True)
+        info: dict[str, Any] = ydl.extract_info(url, download=True) or {}
+        if not info:
+            logger.error(f"Failed to download: {url}")
+            raise RuntimeError
         video_file: Path = Path(ydl.prepare_filename(info))
     
-    logger.debug(f"Video downloaded successfully to {video_file}")
+    logger.debug(f"Downloaded successfully to {video_file}")
     return video_file
 
 def extract_audio(video_file: Path,
