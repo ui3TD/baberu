@@ -15,7 +15,7 @@ def load(file: Path) -> SSAFile:
     Returns:
         The loaded subtitle object.
     """
-    return SSAFile.load(file, encoding="utf-8")
+    return SSAFile.load(str(file), encoding="utf-8")
 
 def write(sub_file: SSAFile, 
           output_file: Path) -> Path:
@@ -35,7 +35,7 @@ def write(sub_file: SSAFile,
             for event in sub_file:
                 f.write(event.text + '\n')
     else:
-        sub_file.save(output_file, encoding='utf-8')
+        sub_file.save(str(output_file), encoding='utf-8')
     logger.debug(f"Saved file to {output_file}")
     return output_file
 
