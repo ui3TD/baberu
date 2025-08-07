@@ -6,7 +6,7 @@ import tempfile
 import math
 import ffmpeg
 
-from LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment, TranscribedWord
+from LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment
 
 logger = logging.getLogger(__name__)
 
