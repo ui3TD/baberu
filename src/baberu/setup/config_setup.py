@@ -54,7 +54,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
         config_logger.info(f"User config not found. Creating default at {user_config_path.resolve()}")
         try:
             # Find the packaged default config to use as a template
-            with importlib.resources.files('baberu.defaults').joinpath('default_config.yaml') as default_path:
+            with importlib.resources.as_file(importlib.resources.files('baberu.defaults').joinpath('default_config.yaml')) as default_path:
                 # Ensure the destination directory exists and copy the file
                 user_config_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(default_path, user_config_path)
