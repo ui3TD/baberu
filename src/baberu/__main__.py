@@ -16,8 +16,8 @@ from LLMFactory.factory import AIToolFactory
 from LLMFactory.transcription.base import TranscriptionResult, WritableTranscriptionProvider
 from baberu.transcription import transcript_conversion, transcript_segmented, transcript_chunked
 
-app_config: dict[str, Any] = None
-logger: logging.Logger = None
+app_config: dict[str, Any] = {}
+logger: logging.Logger = logging.getLogger(__name__)
 
 def _download(url: str,
               output_file: Path | None = None, 
