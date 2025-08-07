@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+CONFIG_FILE_NAME = "config.yaml"
+TEMPLATE_CONFIG_FILE_NAME = "default_config.yaml"
 
 def load_config(arg: Path | None = None) -> dict[str, Any]:
     """
@@ -38,7 +40,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
     # 2. Check project root (for local development)
     try:
         project_root = file_utils.get_project_dir()
-        dev_config_path = project_root / "config.yaml"
+        dev_config_path = project_root / CONFIG_FILE_NAME
         if dev_config_path.exists():
             config_logger.info(f"Loading config from dev directory: {dev_config_path}")
             with open(dev_config_path, 'r', encoding='utf-8') as f:
@@ -48,13 +50,13 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
 
     # 3. Check user-specific config directory. If not found, create from default.
     user_config_dir = Path(platformdirs.user_config_dir(APP_NAME))
-    user_config_path = user_config_dir / "config.yaml"
+    user_config_path = user_config_dir / CONFIG_FILE_NAME
 
     if not user_config_path.exists():
         config_logger.info(f"User config not found. Creating default at {user_config_path.resolve()}")
         try:
             # Find the packaged default config to use as a template
-            with importlib.resources.as_file(importlib.resources.files('baberu.defaults').joinpath('default_config.yaml')) as default_path:
+            with importlib.resources.as_file(importlib.resources.files('baberu.defaults').joinpath(TEMPLATE_CONFIG_FILE_NAME)) as default_path:
                 # Ensure the destination directory exists and copy the file
                 user_config_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(default_path, user_config_path)
@@ -64,7 +66,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
             )
             # 4. Fallback to loading the packaged default directly
             try:
-                with importlib.resources.files('baberu.defaults').joinpath('default_config.yaml').open('r', encoding='utf-8') as f:
+                with importlib.resources.files('baberu.defaults').joinpath(TEMPLATE_CONFIG_FILE_NAME).open('r', encoding='utf-8') as f:
                     return yaml.safe_load(f)
             except (FileNotFoundError, ModuleNotFoundError):
                 config_logger.critical("Fatal: Could not find the packaged default config.")
