@@ -19,7 +19,7 @@ from baberu.transcription import transcript_conversion, transcript_segmented, tr
 app_config: dict[str, Any] = None
 logger: logging.Logger = None
 
-def _download(url: Path,
+def _download(url: str,
               output_file: Path | None = None, 
               output_dir: Path | None = None) -> Path:
     """Downloads a file from a URL if it doesn't already exist."""
@@ -36,7 +36,7 @@ def _extract(video_file: Path,
              output_root: str, 
              output_file: Path | None) -> Path:
     """Extracts the audio stream from a video file."""
-    audio_file: Path = None
+    audio_file: Path | None = None
 
     codec_name = av_utils.get_audio_codec(video_file)
     if not codec_name:
@@ -74,7 +74,7 @@ def _transcribe(audio_file: Path,
     model: str = config['elevenlabs_model']
 
     json_file: Path = output_file or Path(output_root + ".json")
-    transcript: TranscriptionResult = None 
+    transcript: TranscriptionResult | None = None 
     transcript_provider_type = AIToolFactory.get_transcription_provider_type(model)
 
     if json_file.exists():
@@ -82,7 +82,7 @@ def _transcribe(audio_file: Path,
         with open(json_file, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         json_data = transcript_provider_type.validate(json_data)
-        transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+        transcript = transcript_provider_type.parse(json_data)
     else:
         logger.info(f"Transcribing audio from: {audio_file} to {json_file}")
         transcript_provider = AIToolFactory.get_transcription_provider(model)
@@ -99,7 +99,7 @@ def _transcribe(audio_file: Path,
             json_data = type(transcript_provider).to_provider_format(transcript)
         else:
             json_data = transcript_provider.transcribe(audio_file, lang=lang)
-            transcript: TranscriptionResult = transcript_provider_type.parse(json_data)
+            transcript = transcript_provider_type.parse(json_data)
 
         transcript_conversion.write_transcript_json(json_data, json_file)
         logger.info(f"Audio transcribed: {json_file}")
@@ -120,7 +120,7 @@ def _convert(transcript: TranscriptionResult,
     parsing_model: str = config['parsing_model']
 
     output_sub_file = Path(output_root + ".raw.ass")
-    sub_data: SSAFile = None
+    sub_data: SSAFile | None = None
 
     if output_sub_file.exists() :
         logger.info(f"Conversion skipped. File already exists: {output_sub_file}")
@@ -160,7 +160,7 @@ def _twopass(sub_data: SSAFile,
     hard_max_lines: int = parsing_config['hard_max_chars']
     hard_max_carryover: int = parsing_config['hard_max_carryover']
     max_time_gap_sec: float = parsing_config['max_time_gap_sec']
-    parsing_model: int = parsing_config['parsing_model']
+    parsing_model: str = parsing_config['parsing_model']
     mistimed_seg_thresh_sec: float = mistiming_config['mistimed_seg_thresh_sec']
     seg_min_lines: int = mistiming_config['seg_min_lines']
     seg_backtrace_limit: int = mistiming_config['seg_backtrace_limit']
@@ -225,7 +225,7 @@ def _twopass(sub_data: SSAFile,
 
 def _fix(sub_data: SSAFile, 
          output_root: str,
-         segment: list[int] = []) -> tuple[SSAFile, list[int]]:  
+         segment: list[int] = []) -> tuple[SSAFile, list[int], Path]:  
     """Fixes mistimed subtitle lines by merging and adjusting them."""  
     mistiming_config = app_config['mistimed_lines']
     segs_config = app_config['mistimed_segs']
@@ -301,7 +301,7 @@ def _translate(sub_data: SSAFile,
                model: str,
                lang_from: str,
                lang_to: str,
-               segment: list[int] = []) -> SSAFile:
+               segment: list[int] = []) -> tuple[SSAFile, Path]:
     """Translates subtitle text from a source to a target language."""
     config = app_config['translation']
     context_lines: int = config['context_lines']
@@ -364,7 +364,7 @@ def _translate(sub_data: SSAFile,
 
 def _pad(sub_data: SSAFile, 
             output_root: str,
-            segment: list[int] = []) -> SSAFile:   
+            segment: list[int] = []) -> tuple[SSAFile, Path]:   
     """Pads subtitle timings to improve readability."""
     config = app_config['subtitle_padding']
     max_lead_out_sec: float = config['max_lead_out_sec']
@@ -428,7 +428,7 @@ def main():
 
     # Parse arguments
     parser = args_setup.init_parser()
-    args: args_setup.args = parser.parse_args()
+    args = parser.parse_args()
     
     # Set defaults
     model = args.model or app_config['translation']['default_model']
@@ -523,7 +523,7 @@ def main():
 
     # Prepare ouput dir
     environ.setdefault('BABERU_DIR', app_config['working_dir'])
-    input_dir: Path = input_file.parent if input_file else None
+    input_dir: Path | None = input_file.parent if input_file else None
     output_dir: Path = Path(args.directory or environ.get("BABERU_DIR") or input_dir or Path.cwd())
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Output directory set to {output_dir.resolve()}")
@@ -537,6 +537,10 @@ def main():
         elif file_utils.formats.is_audio(input_file):
             audio_file = input_file
 
+    if input_file is None:
+        logger.error("Input file could not be processed.")
+        raise ValueError
+    
     # Discover output root
     output_root: str = file_utils.get_file_root(output_dir / input_file)
 
@@ -571,7 +575,7 @@ def main():
         sub_data = sub_utils.load(sub_file)
     
     # Retranscribe subtitles
-    if sub_data and (args.retranscribe or args.auto_pilot):
+    if sub_data and audio_file and (args.retranscribe or args.auto_pilot):
         if not args.retranscribe:
             args.retranscribe = "auto"
         
@@ -612,15 +616,15 @@ def main():
         sub_data, sub_file = _pad(sub_data, output_root, segment)
 
     # Write final subtitle file
-    if sub_data and formats.is_sub(output_file):
+    if sub_data and output_file and formats.is_sub(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
         logger.info(f"Saved subtitles to: {output_file.resolve()}")
     
-    if sub_data and formats.is_text(output_file):
+    if sub_data and output_file and formats.is_text(output_file):
         sub_file = sub_utils.write(sub_data, output_file)
         logger.info(f"Saved text file to: {output_file.resolve()}")
         
-    if audio_file and image_file and args.audio_to_video:
+    if audio_file and image_file and output_file and args.audio_to_video:
         if formats.is_video(output_file):
             output_vid_file = output_file
         else:
@@ -645,7 +649,7 @@ def main():
             else:
                 video_file = Path(hardcode_path)
             
-        if video_file and sub_file:
+        if video_file and sub_file and output_file:
             if not formats.is_video(output_file):
                 output_file = video_file.with_stem(f"{video_file.stem}_subbed")
             av_utils.hardcode_subtitles(video_file, sub_file, output_file)
