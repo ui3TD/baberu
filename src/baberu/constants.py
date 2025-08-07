@@ -22,3 +22,5 @@ CODEC_TO_EXTENSION_MAP = {
     "pcm_s24le": "wav",
     "pcm_f32le": "wav",
 }
+CONFIG_FILE_NAME = "config.yaml"
+TEMPLATE_CONFIG_FILE_NAME = "default_config.yaml"

@@ -1,3 +1,5 @@
+from baberu.constants import CONFIG_FILE_NAME
+from baberu.constants import TEMPLATE_CONFIG_FILE_NAME
 from baberu.tools import file_utils
 from baberu.constants import APP_NAME
 
@@ -10,9 +12,6 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any
-
-CONFIG_FILE_NAME = "config.yaml"
-TEMPLATE_CONFIG_FILE_NAME = "default_config.yaml"
 
 def load_config(arg: Path | None = None) -> dict[str, Any]:
     """
