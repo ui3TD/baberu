@@ -93,6 +93,7 @@ def _delimit_segment(
     
     sub_lines: list[SubtitleLine] = []
     current_words: list[TranscribedWord] = []
+    api_response: str = ""
 
     for word in segment.words:
         # Break on time gap
