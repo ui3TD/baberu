@@ -99,7 +99,7 @@ def transcribe_segments(subtitles: SSAFile,
 
         # If a cached transcription for this exact segment exists, use it
         if output_file.exists():
-            new_subtitles = SSAFile.load(output_file)
+            new_subtitles = SSAFile.load(str(output_file))
             subtitles = sub_utils.splice(subtitles, segment, new_subtitles)
             continue  # Proceed to the next segment
 
