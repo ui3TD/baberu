@@ -1,9 +1,9 @@
 from os import environ
 import logging
 
-from .llm import base as llm_base, gemini, claude, grok, openai as llm_openai, deepseek, openrouter
-from .image import base as image_base, imagen, openai as image_openai
-from .transcription import base as transcription_base, elevenlabs, openai as transcription_openai, fireworks
+from .llm import base as llm_base
+from .image import base as image_base
+from .transcription import base as transcription_base
 
 class AIToolFactory:
     """A factory class for creating instances of AI tool providers."""
@@ -27,42 +27,49 @@ class AIToolFactory:
         logger = logging.getLogger(__name__)
 
         if "/" in model_name.lower():
+            from .llm import openrouter
             api_key = environ.get("OPENROUTER_API_KEY", "")
             if not api_key:
                 logger.error("OpenRouter API key not found.")
                 raise ValueError("OpenRouter API key not found.")
             return openrouter.OpenRouterProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif 'gemini' in model_name.lower():
+            from .llm import gemini
             api_key = environ.get("GEMINI_API_KEY", "")
             if not api_key:
                 logger.error("Google API key not found.")
                 raise ValueError("Google API key not found.")
             return gemini.GeminiProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "claude" in model_name.lower():
+            from .llm import claude
             api_key = environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
                 logger.error("Anthropic API key not found.")
                 raise ValueError("Anthropic API key not found.")
             return claude.ClaudeProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "grok" in model_name.lower():
+            from .llm import grok
             api_key = environ.get("XAI_API_KEY", "")
             if not api_key:
                 logger.error("XAI API key not found.")
                 raise ValueError("XAI API key not found.")
             return grok.GrokProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "o1" in model_name.lower() or "o3" in model_name.lower() or "o4" in model_name.lower():
+            from .llm import openai as llm_openai
             api_key = environ.get("OPENAI_API_KEY", "")
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
             return llm_openai.OProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "gpt" in model_name.lower():
+            from .llm import openai as llm_openai
             api_key = environ.get("OPENAI_API_KEY", "")
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
             return llm_openai.GPTProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "deepseek" in model_name.lower():
+            from .llm import deepseek
             api_key = environ.get("DEEP_API_KEY", "")
             if not api_key:
                 logger.error("Deepseek API key not found.")
@@ -89,6 +96,7 @@ class AIToolFactory:
         logger = logging.getLogger(__name__)
 
         if 'imagen' in model_name.lower():
+            from .image import imagen
             api_key = environ.get("GEMINI_API_KEY", "")
             if not api_key:
                 logger.error("Google API key not found.")
@@ -96,6 +104,7 @@ class AIToolFactory:
 
             return imagen.ImagenProvider(api_key=api_key, model=model_name)
         elif 'dall-e' in model_name.lower() or 'gpt' in model_name.lower():
+            from .image import openai as image_openai
             api_key = environ.get("OPENAI_API_KEY", "")
             if not api_key:
                 logger.error("OpenAI API key not found.")
@@ -122,18 +131,21 @@ class AIToolFactory:
         logger = logging.getLogger(__name__)
 
         if 'scribe' in model_name.lower():
+            from .transcription import elevenlabs
             api_key = environ.get("ELEVENLABS_API_KEY")
             if not api_key:
                 logger.error("ElevenLabs API key not found.")
                 raise ValueError("ElevenLabs API key not found.")
             return elevenlabs.ScribeProvider(api_key=api_key, model=model_name)
         elif 'whisper-1' in model_name.lower():
+            from .transcription import openai as transcription_openai
             api_key = environ.get("OPENAI_API_KEY")
             if not api_key:
                 logger.error("OpenAI API key not found.")
                 raise ValueError("OpenAI API key not found.")
             return transcription_openai.WhisperProvider(api_key=api_key, model=model_name)
         elif 'whisper-v3' in model_name.lower():
+            from .transcription import fireworks
             api_key = environ.get("FIREWORKS_API_KEY")
             if not api_key:
                 logger.error("FIREWORKS API key not found.")
@@ -146,10 +158,13 @@ class AIToolFactory:
     def get_transcription_provider_type(model_name: str) -> type[transcription_base.TranscriptionProvider]:
         """Returns the provider type."""
         if 'scribe' in model_name.lower():
+            from .transcription import elevenlabs
             return elevenlabs.ScribeProvider
         elif 'whisper-1' in model_name.lower():
+            from .transcription import openai as transcription_openai
             return transcription_openai.WhisperProvider
         elif 'whisper-v3' in model_name.lower():
+            from .transcription import fireworks
             return fireworks.FireworksProvider
         else:
             raise ValueError(f"Could not determine transcription provider for model: {model_name}")
