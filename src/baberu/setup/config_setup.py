@@ -20,7 +20,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
     The lookup order is:
     1. Path specified by the commandline argument (not implemented).
     2. `config.yaml` in the project root (for development).
-    3. `config.yaml` in the user's config directory (e.g., ~/.config/myapp/).
+    3. `config.yaml` in the user's config directory (e.g., ~/.config/baberu/).
     4. The default `default_config.yaml` packaged with the application.
     """
 
