@@ -294,7 +294,7 @@ def apply_timing_standards(subtitles: SSAFile,
             
             # Apply backward extension if possible
             if new_start_time < current_subtitle.start:
-                current_subtitle.start = new_start_time
+                current_subtitle.start = int(new_start_time)
                 modified_count += 1
 
         # Avoid rounding errors
