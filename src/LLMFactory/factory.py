@@ -41,7 +41,7 @@ class AIToolFactory:
         elif "claude" in model_name.lower():
             api_key = environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
-                logger.warnerroring("Anthropic API key not found.")
+                logger.error("Anthropic API key not found.")
                 raise ValueError("Anthropic API key not found.")
             return claude.ClaudeProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         elif "grok" in model_name.lower():
