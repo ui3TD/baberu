@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 
 import langcodes
+from langcodes.tag_parser import LanguageTagError
 from pysubs2 import SSAFile, SSAEvent
 
 from LLMFactory.factory import AIToolFactory
@@ -107,7 +108,7 @@ def translate(sub_file: SSAFile,
             batch_size: int = batch_end - i 
 
             # Prepare source text batch
-            discard_lines: int = min(discard_lines, ending_item - batch_end)
+            discard_lines = min(discard_lines, ending_item - batch_end)
             current_batch = sub_file.events[i:(batch_end + discard_lines)]
             if not current_batch:
                 break
@@ -124,6 +125,7 @@ def translate(sub_file: SSAFile,
             
             # Attempt translation with retries
             translated_text: str = ""
+            new_lines: list[str] = []
             for translate_attempt in range(translate_retries):
 
                 if is_openrouter_free:
@@ -161,7 +163,7 @@ def translate(sub_file: SSAFile,
                 new_lines = translated_text.strip().split('\n')
                 lines_are_numbered = _is_numbered(new_lines)
                 if lines_are_numbered:
-                    new_lines: list[str] = _remove_numbering(new_lines)
+                    new_lines = _remove_numbering(new_lines)
                 
                 new_lines = _clean_ellipses(new_lines)
                 
@@ -420,10 +422,11 @@ def _force_line_count(translated_lines: list[str],
         translated_lines = translated_lines + ["[Translation missing]" for _ in range(len(target_lines) - len(translated_lines))]
     return translated_lines
 
-def _get_lang_name(bcp47_code: str) -> str | None:
+def _get_lang_name(bcp47_code: str) -> str:
   """Gets the English display name for a BCP 47 language code."""
   try:
     lang = langcodes.Language.get(bcp47_code)
     return lang.display_name('en')
-  except (LookupError, langcodes.tag_parser.LanguageTagError):
-    return None
+  except (LookupError, LanguageTagError):
+    logger.warning(f"Language code {bcp47_code} could not be parsed.")
+    return bcp47_code
