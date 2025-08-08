@@ -199,8 +199,7 @@ def translate(sub_file: SSAFile,
                         
             translated_lines.extend(new_lines)
 
-            if ending_translated_lines:
-                write_lines(translated_lines, output_file)
+            write_lines(translated_lines, output_file)
 
             i = batch_end 
 
@@ -212,7 +211,8 @@ def translate(sub_file: SSAFile,
         duration_minutes, duration_seconds = divmod(int(duration), 60)
         logger.debug(f"Translation ran for {duration_minutes} min {duration_seconds} s")
     
-    write_lines(ending_translated_lines, output_file)
+    if ending_translated_lines:
+        write_lines(ending_translated_lines, output_file)
 
     return translated_lines
 
