@@ -56,11 +56,14 @@ def translate(sub_file: SSAFile,
     is_openrouter_free: bool = current_model.startswith('google/gemini-2.5-pro-exp')
     def_time_per_bath: float = 220 if is_openrouter_free else 81
 
+    translated_lines = []
+    ending_translated_lines = []
+
     if segment:
         starting_index = min(segment)
+        ending_index = max(segment)
         translated_lines = [i.text for i in sub_file.events[0:starting_index]]
-    else:
-        translated_lines = []
+        ending_translated_lines = [i.text for i in sub_file.events[ending_index + 1:]]
         
     # Check for existing translations
     if output_file.exists():
@@ -196,7 +199,8 @@ def translate(sub_file: SSAFile,
                         
             translated_lines.extend(new_lines)
 
-            write_lines(translated_lines, output_file)
+            if ending_translated_lines:
+                write_lines(translated_lines, output_file)
 
             i = batch_end 
 
@@ -207,6 +211,8 @@ def translate(sub_file: SSAFile,
         duration: float = time.perf_counter() - start_time
         duration_minutes, duration_seconds = divmod(int(duration), 60)
         logger.debug(f"Translation ran for {duration_minutes} min {duration_seconds} s")
+    
+    write_lines(ending_translated_lines, output_file)
 
     return translated_lines
 
