@@ -183,7 +183,7 @@ def translate(sub_file: SSAFile,
                 if abs(len(current_batch) - len(new_lines)) <= 10:
                     prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
                 
-                if current_model != fallback_model:
+                if translate_attempt >= translate_retries and current_model != fallback_model:
                     logger.warning(f"Warning: {current_model} failed to get exact translation line count after {translate_retries} attempts. Falling back to model: {fallback_model}")
                     translate_attempt = 0
                     current_model = fallback_model
