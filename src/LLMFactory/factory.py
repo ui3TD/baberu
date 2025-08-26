@@ -2,7 +2,6 @@ from os import environ
 import logging
 
 from .llm import base as llm_base
-from .image import base as image_base
 from .transcription import base as transcription_base
 
 class AIToolFactory:
@@ -77,41 +76,6 @@ class AIToolFactory:
             return deepseek.DeepseekProvider(api_key=api_key, model=model_name, system_prompt=system_prompt)
         else:
             raise ValueError(f"Could not determine LLM provider for model: {model_name}")
-        
-    @staticmethod
-    def get_image_provider(model_name: str) -> image_base.ImageProvider:
-        """
-        Retrieves an appropriate image generation provider based on the model name.
-
-        This method inspects the model name to determine which provider to instantiate
-        (e.g., Imagen, DALL-E) and fetches the required API key from
-        environment variables.
-
-        Args:
-            model_name: The name of the image generation model.
-
-        Returns:
-            An instance of a class derived from ImageProvider.
-        """
-        logger = logging.getLogger(__name__)
-
-        if 'imagen' in model_name.lower():
-            from .image import imagen
-            api_key = environ.get("GEMINI_API_KEY", "")
-            if not api_key:
-                logger.error("Google API key not found.")
-                raise ValueError("Google API key not found.")
-
-            return imagen.ImagenProvider(api_key=api_key, model=model_name)
-        elif 'dall-e' in model_name.lower() or 'gpt' in model_name.lower():
-            from .image import openai as image_openai
-            api_key = environ.get("OPENAI_API_KEY", "")
-            if not api_key:
-                logger.error("OpenAI API key not found.")
-                raise ValueError("OpenAI API key not found.")
-            return image_openai.OpenAIProvider(api_key=api_key, model=model_name)
-        else:
-            raise ValueError(f"Could not determine image generation provider for model: {model_name}")
 
     @staticmethod
     def get_transcription_provider(model_name: str) -> transcription_base.TranscriptionProvider:
