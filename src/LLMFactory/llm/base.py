@@ -4,7 +4,7 @@ import logging
 class LLMProvider(ABC):
     """Abstract base class for all Large Language Model providers."""
     
-    def __init__(self, api_key: str, model: str, system_prompt: str = None):
+    def __init__(self, api_key: str, model: str, system_prompt: str | None = None):
         """Initializes the LLM provider.
 
         Args:
