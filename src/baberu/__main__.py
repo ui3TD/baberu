@@ -7,6 +7,7 @@ import json
 import dotenv
 from pysubs2 import SSAFile
 
+from baberu.artifacts import Artifacts
 from baberu.constants import CODEC_TO_EXTENSION_MAP
 from baberu.setup import config_setup, logging_setup, args_setup
 from baberu.subtitling import sub_correction, sub_translation, sub_utils
@@ -33,7 +34,7 @@ def _download(url: str,
     return downloaded_file
 
 def _extract(video_file: Path,
-             output_root: str, 
+             artifacts: Artifacts,
              output_file: Path | None) -> Path:
     """Extracts the audio stream from a video file."""
     audio_file: Path | None = None
@@ -53,7 +54,7 @@ def _extract(video_file: Path,
         )
         extension = codec_name
 
-    output_audio_file: Path = output_file or Path(f"{output_root}.{extension}")
+    output_audio_file: Path = output_file or artifacts.audio(extension)
     
     if output_audio_file.exists():
         logger.info(f"Extraction skipped. File already exists: {output_audio_file}")
@@ -66,14 +67,14 @@ def _extract(video_file: Path,
     return audio_file
 
 def _transcribe(audio_file: Path,
-                output_root: str, 
+                artifacts: Artifacts,
                 output_file: Path | None,
                 lang: str) -> TranscriptionResult:
     """Transcribes an audio file into a TranscriptionResult object."""
     config = app_config['transcription']
     model: str = config['elevenlabs_model']
 
-    json_file: Path = output_file or Path(output_root + ".json")
+    json_file: Path = output_file or artifacts.transcript()
     transcript: TranscriptionResult | None = None 
     transcript_provider_type = AIToolFactory.get_transcription_provider_type(model)
 
@@ -107,7 +108,7 @@ def _transcribe(audio_file: Path,
     return transcript
 
 def _convert(transcript: TranscriptionResult,
-             output_root: str) -> SSAFile:
+             artifacts: Artifacts) -> SSAFile:
     """Converts a transcription JSON object to a subtitle file."""
     config = app_config['parsing']
     delimiters: list[str] = config['delimiters']
@@ -119,7 +120,7 @@ def _convert(transcript: TranscriptionResult,
     max_time_gap_sec: float = config['max_time_gap_sec']
     parsing_model: str = config['parsing_model']
 
-    output_sub_file = Path(output_root + ".raw.ass")
+    output_sub_file = artifacts.raw()
     sub_data: SSAFile | None = None
 
     if output_sub_file.exists() :
@@ -145,7 +146,7 @@ def _convert(transcript: TranscriptionResult,
 
 def _twopass(sub_data: SSAFile, 
              audio_file: Path,
-             output_root: str,
+             artifacts: Artifacts,
              lang: str,
              segment: list[int] = []) -> tuple[SSAFile, list[int], Path]:
     """Performs a two-pass transcription to correct poorly transcribed segments."""
@@ -169,10 +170,9 @@ def _twopass(sub_data: SSAFile,
     seg_max_gap: int = mistiming_config['seg_max_gap']
     
     initial_lines = len(sub_data.events)
+    output_sub_file = artifacts.twopass()
 
     if segment:
-        output_sub_file = Path(output_root + ".2pass_custom.ass")
-
         if output_sub_file.exists():
             logger.info(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
@@ -183,8 +183,6 @@ def _twopass(sub_data: SSAFile,
         segments = [segment]
         logger.info(f"Retranscribing segment {segment} for two-pass process...")
     else:
-        output_sub_file = Path(output_root + ".2pass.ass")
-    
         if output_sub_file.exists():
             logger.info(f"Retranscription skipped. File already exists: {output_sub_file}")
             sub_data = sub_utils.load(output_sub_file)
@@ -193,6 +191,7 @@ def _twopass(sub_data: SSAFile,
         segments: list[list[int]] = transcript_segmented.find_segments(sub_data, mistimed_seg_thresh_sec, seg_min_lines, seg_backtrace_limit, seg_foretrace_limit, seg_min_delay, seg_max_gap)
         if len(segments) == 0:
             logger.info("Retranscription skipped. No segments identified for retranscription.")
+            sub_utils.write(sub_data, output_sub_file)
             return sub_data, segment, output_sub_file
 
         logger.info(f"Retranscribing {len(segments)} segment(s) for two-pass process...")
@@ -223,8 +222,8 @@ def _twopass(sub_data: SSAFile,
     
     return sub_data, segment, output_sub_file
 
-def _fix(sub_data: SSAFile, 
-         output_root: str,
+def _fix(sub_data: SSAFile,
+         artifacts: Artifacts,
          segment: list[int] = []) -> tuple[SSAFile, list[int], Path]:  
     """Fixes mistimed subtitle lines by merging and adjusting them."""  
     mistiming_config = app_config['mistimed_lines']
@@ -238,14 +237,14 @@ def _fix(sub_data: SSAFile,
 
     initial_lines = len(sub_data.events)
 
-    if segment:
-        output_sub_file = Path(output_root + ".fixed_custom.ass")
-    else:
-        output_sub_file = Path(output_root + ".fixed.ass")
+    output_sub_file = artifacts.fixed()
 
     if output_sub_file.exists():
         logger.info(f"Subtitle Fix skipped. File already exists: {output_sub_file}")
         sub_data = sub_utils.load(output_sub_file)
+        if segment:
+            new_lines = len(sub_data.events) - initial_lines
+            segment = [min(segment), max(min(segment), max(segment) + new_lines)]
         return sub_data, segment, output_sub_file
     
     logger.debug(f"Fixing mistimed subtitles... Output: {output_sub_file}")
@@ -262,8 +261,8 @@ def _fix(sub_data: SSAFile,
     return sub_data, segment, output_sub_file
 
 def _contextualize(sub_data: SSAFile, 
-                   instruction: str, 
-                   output_root: str, 
+                   instruction: str,
+                   artifacts: Artifacts,
                    model: str,
                    lang_from: str,
                    lang_to: str) -> str:
@@ -272,7 +271,7 @@ def _contextualize(sub_data: SSAFile,
     confirm_auto_context: bool = config['confirm_auto_context']
 
     if instruction == "auto":
-        context_file = Path(output_root + ".context.txt")
+        context_file = artifacts.context()
         if context_file.exists():
             context_data = sub_translation.load_context(context_file)
         else:
@@ -280,7 +279,7 @@ def _contextualize(sub_data: SSAFile,
             context_data = sub_translation.generate_context(
                 subtitles=sub_data, 
                 model=model, 
-                filename=Path(output_root).name, 
+                filename=Path(artifacts.root).name, 
                 lang_from=lang_from, 
                 lang_to=lang_to)
             sub_translation.write_lines([context_data], context_file)
@@ -297,7 +296,7 @@ def _contextualize(sub_data: SSAFile,
 
 def _translate(sub_data: SSAFile, 
                context: str,
-               output_root: str, 
+               artifacts: Artifacts,
                model: str,
                lang_from: str,
                lang_to: str,
@@ -312,26 +311,15 @@ def _translate(sub_data: SSAFile,
     max_cont_lines: int = config['max_cont_lines']
     fallback_model: str = config['fallback_model']
     
-    if segment:
-        output_sub_file = Path(output_root + ".tr_custom.ass")
+    output_sub_file = artifacts.translated()
 
-        if output_sub_file.exists():
-            logger.info(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
-            sub_data = sub_utils.load(output_sub_file)
-            return sub_data, output_sub_file
-        
-        partial_file = Path(output_root + ".partial.tr_custom.txt")
-        start_index = min(segment)
-    else:
-        output_sub_file = Path(output_root + ".en.ass")
+    if output_sub_file.exists():
+        logger.info(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
+        sub_data = sub_utils.load(output_sub_file)
+        return sub_data, output_sub_file
 
-        if output_sub_file.exists():
-            logger.info(f"Subtitle Translation skipped. File already exists: {output_sub_file}")
-            sub_data = sub_utils.load(output_sub_file)
-            return sub_data, output_sub_file
-
-        partial_file = Path(output_root + ".partial.en.txt")
-        start_index = 0
+    partial_file = artifacts.partial_translation()
+    start_index = min(segment) if segment else 0
 
     logger.info(f"Initializing translation to: {output_sub_file}")
     txt_data = sub_translation.translate(
@@ -362,8 +350,8 @@ def _translate(sub_data: SSAFile,
 
     return sub_data, output_sub_file
 
-def _pad(sub_data: SSAFile, 
-            output_root: str,
+def _pad(sub_data: SSAFile,
+            artifacts: Artifacts,
             segment: list[int] = []) -> tuple[SSAFile, Path]:   
     """Pads subtitle timings to improve readability."""
     config = app_config['subtitle_padding']
@@ -372,10 +360,7 @@ def _pad(sub_data: SSAFile,
     max_cps: float = config['max_cps']
     min_sec: float = config['min_sec']
     
-    if segment:
-        output_sub_file = Path(output_root + ".padded_custom.ass")
-    else:
-        output_sub_file = Path(output_root + ".padded.ass")
+    output_sub_file = artifacts.padded()
 
     if output_sub_file.exists():
         logger.info(f"Subtitle padding skipped. File already exists: {output_sub_file}")
@@ -461,41 +446,34 @@ def main():
             raise ValueError
 
     # Validate special args
-    if args.retranscribe or args.auto_pilot:
-        if args.retranscribe == "auto" or args.auto_pilot:
-            if audio_file:
-                args.retranscribe = audio_file
-        else:
-            retrans_path = Path(args.retranscribe)
-            if not retrans_path.exists():
-                logger.error(f"Retranscribe file does not exist: {args.retranscribe}")
-                raise FileNotFoundError
-            if retrans_path.is_dir():
-                logger.error(f"Retranscribe path cannot be a directory: {args.retranscribe}")
-                raise IsADirectoryError
-            if not file_utils.formats.is_audio(retrans_path):
-                logger.error(f"Retranscribe file is not a recognized audio format: {args.retranscribe}")
-                raise ValueError
-            if audio_file:
-                logger.error(f"Error: Two audio files provided: {audio_file} and {args.retranscribe}")
-                raise ValueError
-            audio_file = retrans_path
+    if args.retranscribe and args.retranscribe != "auto":
+        retrans_path = Path(args.retranscribe)
+        if not retrans_path.exists():
+            logger.error(f"Retranscribe file does not exist: {args.retranscribe}")
+            raise FileNotFoundError
+        if retrans_path.is_dir():
+            logger.error(f"Retranscribe path cannot be a directory: {args.retranscribe}")
+            raise IsADirectoryError
+        if not file_utils.formats.is_audio(retrans_path):
+            logger.error(f"Retranscribe file is not a recognized audio format: {args.retranscribe}")
+            raise ValueError
+        if audio_file:
+            logger.error(f"Error: Two audio files provided: {audio_file} and {args.retranscribe}")
+            raise ValueError
+        audio_file = retrans_path
 
-    if args.translate:
-        if args.translate == "auto" or args.auto_pilot:
-            pass
-        else:
-            context_path = Path(args.translate)
-            if context_path.name == "auto":
-                logger.error(f"Translation context file cannot be named 'auto' because 'auto' is a special instruction: {args.translate}")
-                raise ValueError
-            if not context_path.exists():
-                logger.error(f"Context file does not exist: {args.translate}")
-                raise FileNotFoundError
-            if context_path.is_dir():
-                logger.error(f"Translation context file cannot be a directory: {args.translate}")
-                raise IsADirectoryError
-            
+    if args.translate and args.translate != "auto":
+        context_path = Path(args.translate)
+        if context_path.name == "auto":
+            logger.error(f"Translation context file cannot be named 'auto' because 'auto' is a special instruction: {args.translate}")
+            raise ValueError
+        if not context_path.exists():
+            logger.error(f"Context file does not exist: {args.translate}")
+            raise FileNotFoundError
+        if context_path.is_dir():
+            logger.error(f"Translation context file cannot be a directory: {args.translate}")
+            raise IsADirectoryError
+
     if args.lines:
         try:
             if '-' in args.lines:
@@ -515,10 +493,10 @@ def main():
             logger.error(f"Audio-to-Video file is not a recognized image format: {args.audio_to_video}")
             raise ValueError
         if not Path(image_file).exists():
-            logger.error(f"Audio-to-Video image file does not exist: {args.translate}")
+            logger.error(f"Audio-to-Video image file does not exist: {args.audio_to_video}")
             raise FileNotFoundError
         if Path(image_file).is_dir():
-            logger.error(f"Audio-to-Video image file cannot be a directory: {args.translate}")
+            logger.error(f"Audio-to-Video image file cannot be a directory: {args.audio_to_video}")
             raise IsADirectoryError
 
     # Prepare ouput dir
@@ -541,19 +519,24 @@ def main():
         logger.error("Input file could not be processed.")
         raise ValueError
     
-    # Discover output root
-    output_root: str = file_utils.get_file_root(output_dir / input_file)
+    # Decide where this job's files live
+    previous_root: str = file_utils.get_file_root(input_file, lang_to)
+    artifacts = Artifacts(
+        root=file_utils.get_file_root(output_dir / input_file.name, lang_to),
+        lang_to=lang_to,
+        lines_label=f"L{segment[0] + 1}-{segment[1] + 1}" if segment else "",
+        previous_root=previous_root)
 
     # Extract audio
     if video_file and (args.extract or args.auto_pilot):
         name_defined: bool = formats.is_audio(output_file)
-        audio_file = _extract(video_file, output_root, 
+        audio_file = _extract(video_file, artifacts,
                               output_file if name_defined else None)
 
     # Transcribe
-    if audio_file and (args.speech_to_text or args.auto_pilot):
+    if audio_file and not sub_file and (args.speech_to_text or args.auto_pilot):
         force_write: bool = formats.is_json(output_file)
-        transcript_data = _transcribe(audio_file, output_root, 
+        transcript_data = _transcribe(audio_file, artifacts,
                                 output_file if force_write else None,
                                 lang_from)
 
@@ -568,7 +551,7 @@ def main():
     
     # Create subtitles
     if transcript_data and (args.convert or args.auto_pilot):
-        sub_data = _convert(transcript_data, output_root)
+        sub_data = _convert(transcript_data, artifacts)
 
     # Load subtitles
     if sub_file:
@@ -581,14 +564,14 @@ def main():
         
         sub_data, segment, sub_file = _twopass(
             sub_data=sub_data, 
-            audio_file=audio_file, 
-            output_root=output_root, 
+            audio_file=audio_file,
+            artifacts=artifacts,
             lang=lang_from, 
             segment=segment)
 
     # Fix mistimed segments
     if sub_data and (args.fix or args.auto_pilot):
-        sub_data, segment, sub_file = _fix(sub_data, output_root, segment)
+        sub_data, segment, sub_file = _fix(sub_data, artifacts, segment)
         
     # Translate subtitles
     if sub_data and (args.translate or args.auto_pilot):
@@ -597,15 +580,15 @@ def main():
 
         context_data = _contextualize(
             sub_data=sub_data, 
-            instruction=args.translate, 
-            output_root=output_root, 
+            instruction=args.translate,
+            artifacts=artifacts,
             model=websearch_model, 
             lang_from=lang_from, 
             lang_to=lang_to)            
         sub_data, sub_file = _translate(
             sub_data=sub_data, 
-            context=context_data, 
-            output_root=output_root, 
+            context=context_data,
+            artifacts=artifacts,
             model=model, 
             lang_from=lang_from, 
             lang_to=lang_to, 
@@ -613,7 +596,7 @@ def main():
 
     # Add padding time to subtitles
     if sub_data and (args.pad or args.auto_pilot):
-        sub_data, sub_file = _pad(sub_data, output_root, segment)
+        sub_data, sub_file = _pad(sub_data, artifacts, segment)
 
     # Write final subtitle file
     if sub_data and output_file and formats.is_sub(output_file):
@@ -624,7 +607,7 @@ def main():
         sub_file = sub_utils.write(sub_data, output_file)
         logger.info(f"Saved text file to: {output_file.resolve()}")
         
-    if audio_file and image_file and output_file and args.audio_to_video:
+    if audio_file and image_file and args.audio_to_video:
         if formats.is_video(output_file):
             output_vid_file = output_file
         else:
@@ -643,17 +626,19 @@ def main():
             else:
                 sub_file = Path(hardcode_path)
         elif formats.is_video(hardcode_path):
-            if video_file:
+            if video_file and video_file.resolve() != hardcode_path.resolve():
                 logger.error(f"Error: Two video files provided: {video_file} and {args.hardcode}")
                 raise ValueError
             else:
                 video_file = Path(hardcode_path)
             
-        if video_file and sub_file and output_file:
+        if video_file and sub_file:
             if not formats.is_video(output_file):
                 output_file = video_file.with_stem(f"{video_file.stem}_subbed")
             av_utils.hardcode_subtitles(video_file, sub_file, output_file)
             logger.info(f"Hardcoded subtitles to '{output_file.resolve()}' from video '{video_file.resolve()}' and subtitles '{sub_file.resolve()}'")
+        else:
+            logger.warning("Skipping --hardcode: it needs both a video and a subtitle file.")
     
 
 if __name__ == "__main__":

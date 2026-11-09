@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib import parse
 import logging
+import re
 
 from baberu.constants import VIDEO_SUFFIXES, AUDIO_SUFFIXES, SUBTITLE_SUFFIXES, JSON_SUFFIXES, TEXT_SUFFIXES, IMAGE_SUFFIXES, BABERU_SUFFIXES
 
@@ -60,22 +61,24 @@ class formats:
         """Checks if the file is an image file."""
         return formats._is_of_type(file, IMAGE_SUFFIXES)
 
-def get_file_root(file_path: Path | None = None) -> str:
+def get_file_root(file_path: Path | None = None, lang_to: str = "en") -> str:
     """Gets the file's root name by stripping known suffixes."""
     if not file_path:
         return ""
 
     path_without_suffix = file_path.with_suffix('')
+    name = re.sub(r"\.L\d+-\d+$", "", path_without_suffix.name)
+    suffixes = [*BABERU_SUFFIXES, f".{lang_to}"]
 
-    current_name = path_without_suffix.name
-    final_path = path_without_suffix
+    stripped = True
+    while stripped:
+        stripped = False
+        for code in suffixes:
+            if name.endswith(code) and name != code:
+                name = name[:-len(code)]
+                stripped = True
 
-    for code in BABERU_SUFFIXES:
-        if current_name.endswith(code):
-            new_name = current_name[:-len(code)]
-            final_path = path_without_suffix.with_name(new_name)
-    
-    return str(final_path)
+    return str(path_without_suffix.with_name(name))
 
 
 def get_project_dir(marker: str = "pyproject.toml") -> Path:

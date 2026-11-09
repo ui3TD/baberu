@@ -1,3 +1,4 @@
+import hashlib
 import time
 from pathlib import Path
 import logging
@@ -50,30 +51,30 @@ def translate(sub_file: SSAFile,
     Returns:
         A list of the translated subtitle lines.
     """
-    current_model: str = model
+    def_time_per_batch: float = 81
     starting_index: int = 0
-    last_api_call_time: float = 0
-    is_openrouter_free: bool = current_model.startswith('google/gemini-2.5-pro-exp')
-    def_time_per_bath: float = 220 if is_openrouter_free else 81
 
-    translated_lines = []
-    ending_translated_lines = []
+    translated_lines: list[str] = []
+    ending_translated_lines: list[str] = []
 
     if segment:
         starting_index = min(segment)
         ending_index = max(segment)
         translated_lines = [i.text for i in sub_file.events[0:starting_index]]
         ending_translated_lines = [i.text for i in sub_file.events[ending_index + 1:]]
-        
+
     # Check for existing translations
-    if output_file.exists():
+    source_record = output_file.with_name(output_file.name + ".source")
+    fingerprint = _source_fingerprint(sub_file)
+    if output_file.exists() and _partial_matches_source(source_record, fingerprint):
         try:
             with open(output_file, 'r', encoding='utf-8') as f:
                 translated_lines = [line.strip() for line in f.readlines()]
             starting_index = len(translated_lines)
         except Exception as e:
             logger.warning(f"Error loading existing translation file: {str(e)}. Starting from scratch.")
-    
+    source_record.write_text(fingerprint, encoding='utf-8')
+
     # Get total items
     total_items = len(sub_file.events)
 
@@ -81,10 +82,10 @@ def translate(sub_file: SSAFile,
     if starting_index >= total_items:
         logger.warning(f"All {starting_index} lines are already translated.")
         return translated_lines
-    
-    # Initialize LLM client
+
     system_prompt: str = _set_sys_prompt(lang_from, lang_to)
-    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
+    models: list[str] = list(dict.fromkeys(m for m in (model, fallback_model) if m))
+    clients: dict[str, LLMProvider] = {}
 
     start_time: float = time.perf_counter()
 
@@ -92,27 +93,24 @@ def translate(sub_file: SSAFile,
     if segment:
         ending_item = max(segment) + 1
 
-    i: int = starting_index 
+    i: int = starting_index
     processed_batches: int = 0
 
     try:
         while i < ending_item:
-            initial_batch_end: int = min(i + batch_lines, ending_item)
-
-            batch_end: int = initial_batch_end 
+            batch_end: int = min(i + batch_lines, ending_item)
             continues_added: int = 0
             while batch_end < ending_item and \
                 sub_file.events[batch_end - 1].text.endswith(constants.CONTINUE_FLAG) and \
                     continues_added < max_cont_lines:
-                # Expand batch end by one line
                 batch_end += 1
                 continues_added += 1
 
-            batch_size: int = batch_end - i 
+            batch_size: int = batch_end - i
 
             # Prepare source text batch
-            discard_lines = min(discard_lines, ending_item - batch_end)
-            current_batch = sub_file.events[i:(batch_end + discard_lines)]
+            lookahead: int = min(discard_lines, ending_item - batch_end)
+            current_batch = sub_file.events[i:(batch_end + lookahead)]
             if not current_batch:
                 break
 
@@ -120,88 +118,22 @@ def translate(sub_file: SSAFile,
 
             # Progress Metrics
             processed_batches += 1
-            remaining_items_estimate: int = ending_item - i 
-            total_batches: int = (remaining_items_estimate + batch_lines - 1) // batch_lines + processed_batches -1
-            
+            remaining_items_estimate: int = ending_item - i
+            total_batches: int = (remaining_items_estimate + batch_lines - 1) // batch_lines + processed_batches - 1
+
             elapsed_time: float = time.perf_counter() - start_time
-            _print_progress(elapsed_time, processed_batches, total_batches, i, batch_end, ending_item, def_time_per_bath) 
-            
-            # Attempt translation with retries
-            translated_text: str = ""
-            new_lines: list[str] = []
-            for translate_attempt in range(translate_retries):
+            _print_progress(elapsed_time, processed_batches, total_batches, i, batch_end, ending_item, def_time_per_batch)
 
-                if is_openrouter_free:
-                    time_since_last_call = time.perf_counter() - last_api_call_time
-                    if time_since_last_call < 61:
-                        wait_time = 61 - time_since_last_call
-                        time.sleep(wait_time)
-
-                for server_attempt in range(server_retries):
-                    try:                        
-                        if is_openrouter_free:
-                            last_api_call_time = time.perf_counter()
-                        
-                        logger.debug(f"Prompting Batch {current_batch}/{total_batches} (Lines {i+1}-{batch_end})")
-                        translated_text = llm_client.prompt(prompt)
-                        break
-                    except KeyboardInterrupt:
-                        logger.warning("\nTranslation aborted by user. Saving partial results...")
-                        raise
-                    except ConnectionError:
-                        if server_attempt < (server_retries - 1):
-                            logger.warning(f"Connection Error (attempt {server_attempt+1}/{server_retries}). Retrying...")
-                            time.sleep(min(5 * server_attempt, 65))
-                        else:
-                            logger.error(f"Connection Error (attempt {server_attempt+1}/{server_retries})")
-                            raise
-                    except Exception as e:
-                        if server_attempt < (server_retries - 1) and ("503 UNAVAILABLE" in str(e) or "overloaded" in str(e)):
-                            logger.warning(f"Server overloaded (attempt {server_attempt+1}/{server_retries}). Retrying...")
-                            time.sleep(2)
-                        else:
-                            raise
-                
-                # Process the translation
-                new_lines = translated_text.strip().split('\n')
-                lines_are_numbered = _is_numbered(new_lines)
-                if lines_are_numbered:
-                    new_lines = _remove_numbering(new_lines)
-                
-                new_lines = _clean_ellipses(new_lines)
-                
-                # Check if line count matches
-                if len(new_lines) == len(current_batch):
-                    if current_model == fallback_model:
-                        current_model = model
-                        llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
-                    break
-                
-                # If line count doesn't match, retry with more explicit instructions
-                logger.warning(f"Translation attempt {translate_attempt+1} failed: expected {len(current_batch)} lines, got {len(new_lines)}. Retrying...")
-
-                if abs(len(current_batch) - len(new_lines)) <= 10:
-                    prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
-                
-                if translate_attempt >= translate_retries and current_model != fallback_model:
-                    logger.warning(f"Warning: {current_model} failed to get exact translation line count after {translate_retries} attempts. Falling back to model: {fallback_model}")
-                    translate_attempt = 0
-                    current_model = fallback_model
-                    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=current_model, system_prompt=system_prompt)
-
-            # Handle line count mismatch after all retries
-            if len(new_lines) != len(current_batch):
-                logger.warning(f"Warning: {current_model} failed to get exact translation line count after {translate_retries} attempts. Proceeding with best effort.")
-                new_lines = _force_line_count(new_lines, current_batch)
+            logger.debug(f"Prompting batch {processed_batches}/{total_batches} (Lines {i+1}-{batch_end})")
+            new_lines: list[str] = _translate_batch(
+                prompt, current_batch, models, clients, system_prompt,
+                lang_from, lang_to, translate_retries, server_retries)
 
             # Exclude discarded lines
-            new_lines = new_lines[:batch_size]
-                        
-            translated_lines.extend(new_lines)
-
+            translated_lines.extend(new_lines[:batch_size])
             write_lines(translated_lines, output_file)
 
-            i = batch_end 
+            i = batch_end
 
     except Exception as e:
         logger.error(f"Unexpected error during translation: {str(e)}")
@@ -210,11 +142,86 @@ def translate(sub_file: SSAFile,
         duration: float = time.perf_counter() - start_time
         duration_minutes, duration_seconds = divmod(int(duration), 60)
         logger.debug(f"Translation ran for {duration_minutes} min {duration_seconds} s")
-    
+
     if ending_translated_lines:
-        write_lines(ending_translated_lines, output_file)
+        write_lines(translated_lines + ending_translated_lines, output_file)
 
     return translated_lines
+
+def _source_fingerprint(sub_file: SSAFile) -> str:
+    """Identifies the source text a partial translation was made from."""
+    return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
+
+def _partial_matches_source(source_record: Path, fingerprint: str) -> bool:
+    """Decides whether an existing partial translation can be resumed."""
+    if not source_record.exists():
+        logger.warning("Resuming a partial translation with no record of its source text.")
+        return True
+    if source_record.read_text(encoding='utf-8') != fingerprint:
+        logger.warning("Source subtitles changed since the partial translation. Starting over.")
+        return False
+    return True
+
+def _translate_batch(prompt: str,
+                     current_batch: list[SSAEvent],
+                     models: list[str],
+                     clients: dict[str, LLMProvider],
+                     system_prompt: str,
+                     lang_from: str,
+                     lang_to: str,
+                     translate_retries: int,
+                     server_retries: int) -> list[str]:
+    """Gets a translation with the right line count, trying each model in turn."""
+    new_lines: list[str] = []
+
+    for active_model in models:
+        if active_model not in clients:
+            clients[active_model] = AIToolFactory.get_llm_provider(model_name=active_model, system_prompt=system_prompt)
+
+        attempt_prompt: str = prompt
+        for attempt in range(translate_retries):
+            translated_text = _prompt_with_server_retries(clients[active_model], attempt_prompt, server_retries)
+            new_lines = _parse_response(translated_text)
+
+            if len(new_lines) == len(current_batch):
+                return new_lines
+
+            logger.warning(f"Translation attempt {attempt+1} with {active_model} failed: expected {len(current_batch)} lines, got {len(new_lines)}.")
+            if abs(len(current_batch) - len(new_lines)) <= 10:
+                attempt_prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
+
+    logger.warning(f"No model returned the exact line count after {translate_retries} attempts each. Proceeding with best effort.")
+    return _force_line_count(new_lines, current_batch)
+
+def _prompt_with_server_retries(client: LLMProvider, prompt: str, server_retries: int) -> str:
+    """Sends a prompt, retrying when the server is temporarily unavailable."""
+    for server_attempt in range(server_retries):
+        try:
+            return client.prompt(prompt)
+        except KeyboardInterrupt:
+            logger.warning("\nTranslation aborted by user. Saving partial results...")
+            raise
+        except ConnectionError:
+            if server_attempt < (server_retries - 1):
+                logger.warning(f"Connection Error (attempt {server_attempt+1}/{server_retries}). Retrying...")
+                time.sleep(min(5 * server_attempt, 65))
+            else:
+                logger.error(f"Connection Error (attempt {server_attempt+1}/{server_retries})")
+                raise
+        except Exception as e:
+            if server_attempt < (server_retries - 1) and ("503 UNAVAILABLE" in str(e) or "overloaded" in str(e)):
+                logger.warning(f"Server overloaded (attempt {server_attempt+1}/{server_retries}). Retrying...")
+                time.sleep(2)
+            else:
+                raise
+    return ""
+
+def _parse_response(translated_text: str) -> list[str]:
+    """Splits a model response into cleaned subtitle lines."""
+    new_lines = translated_text.strip().split('\n')
+    if _is_numbered(new_lines):
+        new_lines = _remove_numbering(new_lines)
+    return _clean_ellipses(new_lines)
 
 def load_context(file_path: Path) -> str:
     """Loads a context prompt from a text file.
@@ -408,8 +415,8 @@ def _clean_ellipses(lines: list[str]) -> list[str]:
         if current_line.endswith("...") and next_line.startswith("..."):
             modified_lines[i] = current_line[:-3]
             modified_lines[i+1] = next_line[3:]
-        if current_line.startswith("..."):
-            modified_lines[i+1] = current_line[3:]
+        if modified_lines[i].startswith("..."):
+            modified_lines[i] = modified_lines[i][3:]
         if next_line.startswith("..."):
             modified_lines[i+1] = next_line[3:]
 

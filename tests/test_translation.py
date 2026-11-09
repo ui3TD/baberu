@@ -64,9 +64,9 @@ def test_resumes_from_partial_file(fake_llms, tmp_path):
 def test_short_response_is_retried_then_padded(fake_llms, tmp_path):
     fake_llms["main"] = FakeLLM(lambda prompt: "only one line")
 
-    result = run_translate(numbered_subs(3), tmp_path / "partial.txt", translate_retries=2)
+    result = run_translate(numbered_subs(3), tmp_path / "partial.txt", translate_retries=2, fallback_model="main")
 
-    assert len(fake_llms["main"].calls) >= 2
+    assert len(fake_llms["main"].calls) == 2
     assert result == ["only one line", "[Translation missing]", "[Translation missing]"]
 
 

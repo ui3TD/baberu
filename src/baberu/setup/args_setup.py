@@ -84,10 +84,10 @@ def init_parser() -> ArgumentParser:
                         help='Name of LLM model for translation')
     parser.add_argument('--lang-to',
                         type=str,
-                        help='Language code of source media')
+                        help='Language code of translation')
     parser.add_argument('--lang-from',
                         type=str,
-                        help='Language code of translation')
+                        help='Language code of source media')
     parser.add_argument('-A', '--auto-pilot',
                         action='store_true', 
                         help='Automatically apply all processing steps')

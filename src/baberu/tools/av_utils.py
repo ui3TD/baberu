@@ -1,6 +1,8 @@
 from typing import Any, Tuple
 from pathlib import Path
 import logging
+import shutil
+import tempfile
 
 import yt_dlp
 import ffmpeg
@@ -150,6 +152,10 @@ def hardcode_subtitles(video_file: Path,
                        output_file: Path) -> Path:
     """Burns subtitles into a video, re-encoding to H.264 video and AAC audio.
 
+    ffmpeg's subtitle filter can't reliably read paths containing drive
+    letters or special characters, so it is given a plainly named temporary
+    copy under the current directory.
+
     Args:
         video_file: Path to the input video file.
         subtitle_file: Path to the subtitle file (e.g., .srt, .ass).
@@ -158,17 +164,26 @@ def hardcode_subtitles(video_file: Path,
     Returns:
         The path to the video with hardcoded subtitles.
     """
+    with tempfile.TemporaryDirectory(dir=Path.cwd(), prefix="baberu_subs_") as temp_dir:
+        temp_copy = Path(temp_dir) / f"subs{subtitle_file.suffix}"
+        shutil.copy(subtitle_file, temp_copy)
+        return _burn_subtitles(video_file, temp_copy.relative_to(Path.cwd()), output_file)
+
+
+def _burn_subtitles(video_file: Path,
+                    subtitle_file: Path,
+                    output_file: Path) -> Path:
+    """Runs ffmpeg with a subtitle path that needs no escaping."""
     logger.debug(f"Hardcoding subtitles from {subtitle_file} into {video_file}...")
 
     # Hardcode subtitles using ffmpeg with h264 encoding
     try:
         in_file = ffmpeg.input(str(video_file))
-        # Explicitly select video (stream 0) and audio (stream 1)
-        video_stream = in_file['0']
-        audio_stream = in_file['1']
+        video_stream = in_file.video
+        audio_stream = in_file.audio
 
         # Apply the filter ONLY to the video stream
-        filtered_video = video_stream.filter('subtitles', subtitle_file.relative_to(Path.cwd(), walk_up=True).as_posix())
+        filtered_video = video_stream.filter('subtitles', subtitle_file.as_posix())
 
         # Output the filtered video AND the original audio
         run_output: Tuple[bytes, bytes] = (
