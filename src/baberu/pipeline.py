@@ -8,8 +8,8 @@ import logging
 import shutil
 import sys
 
-from LLMFactory.factory import AIToolFactory
-from LLMFactory.llm.base import LLMProvider
+from baberu.providers.factory import AIToolFactory
+from baberu.providers.llm.base import LLMProvider
 from pysubs2 import SSAFile
 
 from baberu import legacy

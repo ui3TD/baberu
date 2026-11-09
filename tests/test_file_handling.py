@@ -12,7 +12,7 @@ from baberu.subtitling import sub_utils
 from baberu.tools import av_utils
 from baberu.tools.file_utils import FileKind, atomic_path, kind_of
 from baberu.transcription import transcript_segmented
-from LLMFactory.factory import AIToolFactory
+from baberu.providers.factory import AIToolFactory
 from conftest import FakeLLM, make_subs, numbered_subs, run_cli, texts, translate_all
 
 

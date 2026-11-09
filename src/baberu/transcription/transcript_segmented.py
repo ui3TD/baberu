@@ -5,7 +5,7 @@ import logging
 
 from pysubs2 import SSAFile
 
-from LLMFactory.factory import AIToolFactory
+from baberu.providers.factory import AIToolFactory
 
 from baberu.job import Job
 from baberu.settings import MistimedSegmentSettings, ParsingSettings

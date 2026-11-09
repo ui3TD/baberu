@@ -8,9 +8,9 @@ import pytest
 import yaml
 from pysubs2 import SSAEvent, SSAFile
 
-from LLMFactory.factory import AIToolFactory
-from LLMFactory.transcription.base import TranscriptionProvider
-from LLMFactory.transcription.openai import WhisperProvider
+from baberu.providers.factory import AIToolFactory
+from baberu.providers.transcription.base import TranscriptionProvider
+from baberu.providers.transcription.openai import WhisperProvider
 
 BATCH_MARKER = "Maintain exact entry count and order:\n\n"
 ENTRY = re.compile(r"^\d+\. (.*)$")

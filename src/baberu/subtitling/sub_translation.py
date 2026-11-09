@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 import logging
 
-from LLMFactory.llm.base import LLMProvider
+from baberu.providers.llm.base import LLMProvider
 from pysubs2 import SSAEvent, SSAFile
 
 from baberu import constants

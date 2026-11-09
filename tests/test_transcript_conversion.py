@@ -1,4 +1,4 @@
-from LLMFactory.transcription.base import TranscribedSegment, TranscribedWord, TranscriptionResult
+from baberu.providers.transcription.base import TranscribedSegment, TranscribedWord, TranscriptionResult
 
 from baberu.constants import CONTINUE_FLAG
 from baberu.settings import ParsingSettings

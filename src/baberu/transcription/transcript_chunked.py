@@ -6,7 +6,7 @@ import tempfile
 import math
 import ffmpeg
 
-from LLMFactory.transcription.base import (
+from baberu.providers.transcription.base import (
     TranscribedSegment,
     TranscriptionProvider,
     TranscriptionResult,
