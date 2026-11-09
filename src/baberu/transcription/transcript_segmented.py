@@ -1,3 +1,4 @@
+import sys
 import tempfile
 from pathlib import Path
 import logging
@@ -6,7 +7,7 @@ from pysubs2 import SSAFile
 
 from LLMFactory.factory import AIToolFactory
 
-from baberu.artifacts import Artifacts
+from baberu.job import Job
 from baberu.settings import MistimedSegmentSettings, ParsingSettings
 from baberu.subtitling import sub_utils, sub_correction
 from baberu.subtitling.types import LineRange
@@ -33,7 +34,7 @@ def find_segments(subtitles: SSAFile,
 def transcribe_segments(subtitles: SSAFile,
                         ranges: list[LineRange],
                         audio_file: Path,
-                        artifacts: Artifacts,
+                        job: Job,
                         lang: str,
                         parsing: ParsingSettings,
                         transcription_model: str) -> SSAFile:
@@ -48,7 +49,7 @@ def transcribe_segments(subtitles: SSAFile,
         start_time_ms = subtitles.events[line_range.start].start
         end_time_ms = subtitles.events[line_range.end].end
 
-        output_file: Path = artifacts.segment_transcript(audio_file, start_time_ms, end_time_ms)
+        output_file: Path = job.segment(start_time_ms, end_time_ms)
 
         if output_file.exists():
             subtitles = sub_utils.splice(subtitles, line_range, sub_utils.load(output_file))
@@ -79,7 +80,7 @@ def transcribe_segments(subtitles: SSAFile,
         finally:
             temp_audio_path.unlink(missing_ok=True)
 
-    logger.info(f"Processed {len(ranges)} segments using two-pass transcription")
+    logger.debug(f"Processed {len(ranges)} segments using two-pass transcription")
     return subtitles
 
 def pad_segments(subtitles: SSAFile, ranges: list[LineRange]) -> list[LineRange]:
@@ -91,7 +92,7 @@ def _print_preview(ranges: list[LineRange],
                    subtitles: SSAFile,
                    min_lines: int) -> None:
     """Prints a formatted preview of the identified mistimed segments."""
-    print(f"Segments of over {min_lines} consecutive short subtitles found:")
+    print(f"Segments of over {min_lines} consecutive short subtitles found:", file=sys.stderr)
     for line_range in ranges:
         end_time_sec = subtitles.events[line_range.end].end / 1000.0
         start_time_sec = subtitles.events[line_range.start].start / 1000.0
@@ -99,4 +100,4 @@ def _print_preview(ranges: list[LineRange],
         end_min, end_sec = divmod(end_time_sec, 60)
         duration_min, duration_sec = divmod(end_time_sec - start_time_sec, 60)
 
-        print(f"  Timing: {int(start_min)}:{start_sec:05.2f} to {int(end_min)}:{end_sec:05.2f} | Duration: {int(duration_min)}:{duration_sec:05.2f} | {line_range.count} lines")
+        print(f"  Timing: {int(start_min)}:{start_sec:05.2f} to {int(end_min)}:{end_sec:05.2f} | Duration: {int(duration_min)}:{duration_sec:05.2f} | {line_range.count} lines", file=sys.stderr)

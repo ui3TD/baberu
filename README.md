@@ -9,7 +9,7 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 ## Features
 
 *   **Flexible Input:** Handles media URLs, local video/audio files, JSON transcripts, and existing subtitle files (`.srt`, `.ass`, `.vtt`).
-*   **Configurable Pipeline:** Run a full workflow with `--auto-pilot` or execute specific stages individually. The pipeline is resumable, automatically skipping completed steps.
+*   **Configurable Pipeline:** Run everything by default, or name specific stages. Work is saved as it goes, so an interrupted run picks up where it stopped.
     *   **`extract`:** Pulls audio from video files.
     *   **`speech-to-text`:** Transcribes audio to a text file using an external API.
     *   **`convert`:** Generates timed `.ass` subtitles from a transcript, leveraging an LLM to break long lines.
@@ -77,83 +77,112 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
 
 ## Usage
 
-Execute the script from the command line, providing the source input and flags to enable specific processing stages.
-
-**Syntax:**
-
 ```bash
-baberu <source_file_path_or_url> [options]
+baberu <url-or-file> [options]
 ```
 
-**Source Input:**
+Give baberu a URL, video, audio, `.json` transcript or subtitle file. With no stage options it runs every stage that applies and leaves one result beside the source:
 
-*   `<source_file_path_or_url>`: Required. Can be a URL (e.g., YouTube), a local video/audio file, an ElevenLabs `.json` transcription, or a subtitle file (`.srt`, `.ass`, `.vtt`).
+```
+videos/
+  show.mp4
+  show.en.ass      the result; video players load this name automatically
+  show.baberu/     everything used to make it
+```
 
-**Workflow Control**
+The result's path is printed on stdout and progress on stderr. Use `--dry-run` to see what a command would do and which stages cost money.
 
-*   `-A`, `--auto-pilot`: Activates a full, standard pipeline: extract → speech-to-text → convert → retranscribe → fix → translate → pad. This is the most convenient option for a complete, one-shot workflow.
+Keep the `.baberu` folder if you might change anything later, since it holds the paid transcription and translation. `--clean` deletes it after a successful run.
 
-**Core Options (Pipeline Stages):**
+### Stages
 
-Specify flags to activate corresponding steps. Steps are skipped if their expected output file already exists.
+Naming a stage runs that stage and anything it depends on, so `baberu show.mp4 -t` extracts, transcribes and converts first. `retranscribe`, `fix` and `pad` run only when named or on a full run.
 
-*   `-x`, `--extract`: Extract audio (to `.opus`) from video input.
-*   `-s`, `--speech-to-text`: Transcribe audio to text (`.json`) using ElevenLabs. (Requires API key).
-*   `-c`, `--convert`: Convert `.json` transcription to raw subtitles (`.raw.ass`).
-*   `-r [PATH|'auto']`, `--retranscribe [PATH|'auto']`: Refine specific subtitle segments via re-transcription (generates `.2pass.ass`). Requires audio: `'auto'` uses pipeline audio, `PATH` specifies an audio file. (Requires ElevenLabs API key).
-*   `-f`, `--fix`: Apply automated timing corrections (generates `.fixed.ass`).
-*   `-t [PATH|'auto']`, `--translate [PATH|'auto']`: Translate subtitles (generates `.en.ass`, or `.<lang>.ass` with `--lang-to`) using the configured model. (Requires API key).
-    *   `'auto'`: Generate/use context summary (`.context.txt`).
-    *   `PATH`: Use context from the specified text file (cannot be named `auto`).
-*   `-p`, `--pad`: Apply timing padding and conform to readability standards (generates `.padded.ass`).
+| Option | Stage |
+|---|---|
+| `-A`, `--auto-pilot` | Every stage (the default when none is named) |
+| `-x`, `--extract` | Extract the audio from a video |
+| `-s`, `--speech-to-text` | Transcribe the audio (paid) |
+| `-c`, `--convert` | Turn a transcript into subtitles |
+| `-r`, `--retranscribe` | Transcribe badly timed segments again (paid) |
+| `-f`, `--fix` | Fix subtitle timing |
+| `-t`, `--translate` | Translate (paid) |
+| `-p`, `--pad` | Extend timing for readability |
+| `--hardcode` | Burn subtitles into the video |
+| `--audio-to-video IMAGE` | Make a video from the audio and an image |
 
-**Targeted Processing**
+### Additional inputs
 
-*   `--lines XX-YY|XX`: Restrict processing for `retranscribe`, `fix`, `translate`, and `pad` stages to a specific line range (e.g., `10-15`) or a single line (e.g., `10`). Indices are 1-based and inclusive. This generates a separate output file for that range (e.g., `.fixed_custom.L10-15.ass`).
+Each of these turns on the stage that uses it. Audio and video with the same name as the source are found automatically.
 
-**Output & Finalization**
+| Option | Use |
+|---|---|
+| `--audio FILE` | Audio for retranscribing |
+| `--context FILE` | Background notes for translating, instead of generating them |
+| `--subs FILE` | Subtitles to hardcode |
+| `--video FILE` | Video to hardcode into |
 
-*   `-o PATH`, `--output PATH`: Specify the final output file path (e.g., the final `.ass` or hardcoded `.mp4` file).
-*   `-d PATH`, `--directory PATH`: Specify the directory for all intermediate and final output files. Defaults to the input file's directory or the current directory for URLs.
-*   `--hardcode VIDEO_PATH`: Burn the resulting subtitles onto a video. Provide the path to the target video file.
-*   `--audio-to-video IMAGE_PATH`: Create a video by combining the source audio file with a specified static image.
+### Output
 
-**Help:**
+| Option | Effect |
+|---|---|
+| `-o PATH` | Where the final result goes: a file or a folder. Its type must suit the result |
+| `-d DIR` | Folder for the result and the work folder (default: beside the source) |
+| `--overwrite` | Replace an existing file baberu didn't write |
+| `--clean` | Delete the work folder after a successful run |
 
-*   `-h`, `--help`: Display detailed help message and exit.
+baberu never overwrites its input, and it won't replace a file it didn't write, including a result you've since edited, without `--overwrite`.
 
-**Examples:**
+### Reusing and redoing work
 
-1.  **Full pipeline using Auto-Pilot:**
-    ```bash
-    # This single command runs the entire standard pipeline on a video URL
-    baberu "youtube_url" -A -o ./final_subs.ass -d ./output
-    ```
+A second run reuses earlier work and says so. Naming a file means starting from it. `fix` and `pad` always run again because they're free.
 
-2.  **Translate existing subtitles with custom context and then pad them:**
-    ```bash
-    baberu ./input.ass -t ./my_context.txt -p -o ./input.en.padded.ass
-    ```
+If paid work no longer matches, because the subtitles or model changed, baberu stops before spending anything and tells you to redo it:
 
-3.  **Transcribe local audio and convert:**
-    ```bash
-    baberu ./meeting.mp3 -s -c -o ./meeting.raw.ass
-    ```
+```bash
+baberu show.mp4 --redo translate
+```
 
-4.  **Apply two-pass refinement and fixes to existing subs, using pipeline audio:**
-    ```bash
-    # Assumes video.mp4 and corresponding video.raw.ass exist
-    baberu ./video.raw.ass -r auto -f -o ./video.fixed.ass -d ./subs_dir
-    ```
+`--redo` accepts `extract`, `transcribe`, `convert`, `retranscribe`, `context`, `translate` or `all`, and can be repeated.
 
-5.  **Fix only lines 50 to 62 in an existing subtitle file:**
-    ```bash
-    # Generates a .fixed_custom.L50-62.ass file
-    baberu subs.ass -f --lines 50-62
-    ```
+### Other options
 
-6.  **Generate subtitles and burn them into the source video:**
-    ```bash
-    # Runs the full pipeline and then hardcodes the result onto the original video
-    baberu ./my_video.mp4 -A --hardcode ./my_video.mp4 -o ./my_video.hardcoded.mp4
-    ```
+| Option | Effect |
+|---|---|
+| `--model NAME` | Translation model |
+| `--lang-from CODE`, `--lang-to CODE` | Source and target language |
+| `--lines 5-20` | Work on only these lines, leaving the rest unchanged |
+| `--dry-run` | Show the plan without doing or spending anything |
+| `--config FILE` | Use this config file |
+| `--debug` | Show detailed logs, and a traceback on errors |
+
+### Examples
+
+```bash
+# Everything, from a URL, with results in ./output
+baberu "https://youtube.com/watch?v=..." -d ./output
+
+# Translate existing subtitles with your own notes, then pad them
+baberu input.ass --context notes.txt -p -o input.en.ass
+
+# Transcribe and stop at subtitles
+baberu meeting.mp3 -c
+
+# Retranscribe and fix subtitles, finding video.mp4 beside them
+baberu video.ass -r -f
+
+# Fix only lines 50 to 62
+baberu subs.ass -f --lines 50-62
+
+# Full run, then burn the result into the source video
+baberu my_video.mp4 -A --hardcode -o my_video.subbed.mp4
+
+# Try another translation model
+baberu show.mp4 --model claude-opus-5-5 --redo translate
+```
+
+### Upgrading from earlier versions
+
+Work from older versions (`show.raw.ass`, `show.json` and so on) is copied into the new work folder the first time you run that job, and the original files are left alone.
+
+Some options changed: `-t auto` is now `-t`, `-t FILE` is `--context FILE`, `-r FILE` is `--audio FILE`, and `--hardcode FILE` is `--hardcode` with `--subs` or `--video` if needed.

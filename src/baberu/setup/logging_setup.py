@@ -8,6 +8,16 @@ import logging.handlers
 from pathlib import Path
 
 
+class _ConsoleFormatter(logging.Formatter):
+    """Plain status lines, with only problems labeled."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        if record.levelno >= logging.WARNING:
+            return f"baberu: {record.levelname.lower()}: {message}"
+        return message
+
+
 def setup_logging(
     console_level: str = "WARNING",
     file_level: str = "DEBUG",
@@ -23,7 +33,7 @@ def setup_logging(
         log_to_file (bool): Whether to enable file logging.
     """
     if console_level.upper() == "INFO":
-        QUIET_MODULES = ['httpx', 'openai', 'anthropic', 'google_genai']
+        QUIET_MODULES = ['httpx', 'openai', 'anthropic', 'google_genai', 'elevenlabs']
         for module in QUIET_MODULES:
             logging.getLogger(module).setLevel(logging.WARNING)
 
@@ -32,14 +42,12 @@ def setup_logging(
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    console_formatter = logging.Formatter(
-        "[%(levelname)s] %(message)s"
-    )
+    console_formatter = _ConsoleFormatter()
     file_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(message)s (%(name)s)"
     )
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(console_level.upper())
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
@@ -60,7 +68,4 @@ def setup_logging(
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
-        if log_file_path.resolve() != log_file_path:
-            logging.warning(f"File logging configured at level {file_level.upper()} to {log_file_path.resolve()}")
-        else:
-            logging.info(f"File logging configured at level {file_level.upper()} to {log_file_path}")
+        logging.debug(f"File logging configured at level {file_level.upper()} to {log_file_path.resolve()}")

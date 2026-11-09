@@ -1,4 +1,4 @@
-import hashlib
+import sys
 import time
 from pathlib import Path
 import logging
@@ -10,6 +10,7 @@ from baberu import constants
 from baberu.settings import TranslationSettings
 from baberu.subtitling import translation_prompts, translation_response
 from baberu.subtitling.types import LineRange
+from baberu.tools.file_utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,10 @@ def translate(sub_file: SSAFile,
         translated_lines = [i.text for i in sub_file.events[0:line_range.start]]
         ending_translated_lines = [i.text for i in sub_file.events[line_range.end + 1:]]
 
-    source_record = output_file.with_name(output_file.name + ".source")
-    fingerprint = _source_fingerprint(sub_file)
-    if output_file.exists() and _partial_matches_source(source_record, fingerprint):
-        try:
-            with open(output_file, 'r', encoding='utf-8') as f:
-                translated_lines = [line.strip() for line in f.readlines()]
-            starting_index = len(translated_lines)
-        except Exception as e:
-            logger.warning(f"Error loading existing translation file: {str(e)}. Starting from scratch.")
-    source_record.write_text(fingerprint, encoding='utf-8')
+    if output_file.exists():
+        with open(output_file, 'r', encoding='utf-8') as f:
+            translated_lines = [line.strip() for line in f.readlines()]
+        starting_index = len(translated_lines)
 
     total_items = len(sub_file.events)
     if starting_index >= total_items:
@@ -149,22 +144,6 @@ def generate_context(subtitles: SSAFile, llm: LLMProvider, filename: str, lang_f
     return llm.prompt(translation_prompts.context_prompt(subtitles, filename, lang_from, lang_to), grounding=True)
 
 
-def _source_fingerprint(sub_file: SSAFile) -> str:
-    """Identifies the source text a partial translation was made from."""
-    return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
-
-
-def _partial_matches_source(source_record: Path, fingerprint: str) -> bool:
-    """Decides whether an existing partial translation can be resumed."""
-    if not source_record.exists():
-        logger.warning("Resuming a partial translation with no record of its source text.")
-        return True
-    if source_record.read_text(encoding='utf-8') != fingerprint:
-        logger.warning("Source subtitles changed since the partial translation. Starting over.")
-        return False
-    return True
-
-
 def load_context(file_path: Path) -> str:
     """Loads a context prompt from a text file.
 
@@ -192,12 +171,7 @@ def write_lines(lines: list[str], output_file: Path) -> None:
         lines: The list of strings to write.
         output_file: The path to the output text file.
     """
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines))
-    except Exception as e:
-        logger.error(f"Error writing lines to file: {str(e)}")
-    return
+    atomic_write_text(output_file, '\n'.join(lines))
 
 
 def _print_progress(elapsed_time: float,
@@ -210,4 +184,4 @@ def _print_progress(elapsed_time: float,
     time_per_batch: float = (ESTIMATED_SECONDS_PER_BATCH * 4 + elapsed_time) / (4 + current_batch - 1)
     remaining_time: float = time_per_batch * (total_batches - current_batch + 1)
     remaining_minutes, remaining_seconds = divmod(int(remaining_time), 60)
-    print(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s")
+    print(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s", file=sys.stderr)

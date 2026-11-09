@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 import logging
@@ -5,6 +6,7 @@ import logging
 from pysubs2 import SSAFile
 
 from baberu.subtitling.types import LineRange
+from baberu.tools.file_utils import atomic_path
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +34,19 @@ def write(sub_file: SSAFile,
     Returns:
         The path to the saved file.
     """
-    if output_file.suffix == ".txt":
-        with open(output_file, 'w', encoding='utf-8') as f:
-            for event in sub_file:
-                f.write(event.text + '\n')
-    else:
-        sub_file.save(str(output_file), encoding='utf-8')
+    with atomic_path(output_file) as temporary:
+        if output_file.suffix == ".txt":
+            with open(temporary, 'w', encoding='utf-8') as f:
+                for event in sub_file:
+                    f.write(event.text + '\n')
+        else:
+            sub_file.save(str(temporary), encoding='utf-8')
     logger.debug(f"Saved file to {output_file}")
     return output_file
+
+def fingerprint(sub_file: SSAFile) -> str:
+    """Identifies subtitle text, to tell whether paid work still matches it."""
+    return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
 
 def splice(subtitles: SSAFile, 
            line_range: LineRange,
@@ -65,7 +72,7 @@ def splice(subtitles: SSAFile,
 
     subtitles.events[start_idx : end_idx + 1] = new_subtitles.events
     
-    logger.info(f"Removed {num_to_remove} original subtitles and inserted {len(new_subtitles.events)} new lines.")
+    logger.debug(f"Removed {num_to_remove} original subtitles and inserted {len(new_subtitles.events)} new lines.")
     return subtitles
 
 def md_to_ass(subtitles: SSAFile) -> SSAFile:
@@ -112,7 +119,7 @@ def md_to_ass(subtitles: SSAFile) -> SSAFile:
         event.text = italic_result[0]
         italic_count += italic_result[1]
         
-    logger.info(f"Applied formatting: {bold_count} bold, {italic_count} italic, {bold_italic_count} bold-italic elements")
+    logger.debug(f"Applied formatting: {bold_count} bold, {italic_count} italic, {bold_italic_count} bold-italic elements")
     return subtitles
 
 def replace_lines(text_lines: list[str], source_subs: SSAFile, idx: int = 0) -> SSAFile:

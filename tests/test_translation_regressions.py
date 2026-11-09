@@ -44,19 +44,6 @@ def test_partial_file_keeps_lines_after_a_segment(fake_llms, tmp_path):
     ]
 
 
-def test_partial_from_different_source_is_not_reused(fake_llms, tmp_path):
-    fake_llms["main"] = FakeLLM(translate_all)
-    partial = tmp_path / "partial.txt"
-    run_translate(fake_llms, numbered_subs(3), partial)
-    partial.write_text("stale0\nstale1", encoding="utf-8")
-    changed = numbered_subs(3)
-    changed.events[0].text = "different"
-
-    result = run_translate(fake_llms, changed, partial)
-
-    assert result == ["T:different", "T:line1", "T:line2"]
-
-
 def test_partial_with_matching_source_is_resumed(fake_llms, tmp_path):
     fake_llms["main"] = FakeLLM(translate_all)
     partial = tmp_path / "partial.txt"

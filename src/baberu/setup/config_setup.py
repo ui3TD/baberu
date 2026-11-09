@@ -9,7 +9,6 @@ import yaml
 import shutil
 import importlib.resources
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +23,6 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
     4. The default `default_config.yaml` packaged with the application.
     """
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stdout,
-    )
     config_logger = logging.getLogger(__name__)
 
     # 1. Check arg
@@ -41,7 +35,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
         project_root = file_utils.get_project_dir()
         dev_config_path = project_root / CONFIG_FILE_NAME
         if dev_config_path.exists():
-            config_logger.info(f"Loading config from dev directory: {dev_config_path}")
+            config_logger.debug(f"Loading config from dev directory: {dev_config_path}")
             with open(dev_config_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
     except FileNotFoundError:
@@ -72,6 +66,6 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
                 raise RuntimeError("Fatal: Could not find the packaged default config.")
 
     # Load the user config (either pre-existing or newly created)
-    config_logger.info(f"Loading config from user directory: {user_config_path}")
+    config_logger.debug(f"Loading config from user directory: {user_config_path}")
     with open(user_config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)

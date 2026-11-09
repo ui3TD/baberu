@@ -15,6 +15,7 @@ from LLMFactory.transcription.base import TranscriptionResult, TranscribedSegmen
 from baberu.constants import CONTINUE_FLAG
 from baberu.settings import ParsingSettings
 from baberu.subtitling.types import SubtitleLine
+from baberu.tools.file_utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,7 @@ SPLIT_USER_PROMPT = "Split the following text into two lines at a logical point 
 
 def write_transcript_json(json_data: dict[str, Any], 
                           output_file: Path) -> Path:
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-    logger.info(f"Audio transcription saved to {output_file}")
+    atomic_write_text(output_file, json.dumps(json_data, ensure_ascii=False, indent=2))
     return output_file
 
 def load_transcript_json(json_file: Path) -> TranscriptionResult:

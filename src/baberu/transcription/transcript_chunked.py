@@ -106,7 +106,7 @@ def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang
                     all_segments.append(TranscribedSegment(words=adjusted_words))
             
     # --- Assemble the final result from the collected segments ---
-    logger.info("Successfully combined transcriptions from all chunks.")
+    logger.debug("Successfully combined transcriptions from all chunks.")
     
     return TranscriptionResult(
         segments=all_segments,

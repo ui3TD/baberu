@@ -1,84 +1,96 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from enum import Enum, auto
+import hashlib
+import os
 from pathlib import Path
+import time
 from urllib import parse
-import logging
-import re
 
-from baberu.constants import VIDEO_SUFFIXES, AUDIO_SUFFIXES, SUBTITLE_SUFFIXES, JSON_SUFFIXES, TEXT_SUFFIXES, IMAGE_SUFFIXES, BABERU_SUFFIXES
 
-logger = logging.getLogger(__name__)
+class FileKind(Enum):
+    VIDEO = auto()
+    AUDIO = auto()
+    TRANSCRIPT = auto()
+    SUBTITLE = auto()
+    TEXT = auto()
+    IMAGE = auto()
+    UNKNOWN = auto()
 
-class formats:
-    @staticmethod
-    def is_url(input_str: str) -> bool:
-        """Checks if the input string is a URL.
-        
-        Args:
-            input_str: The input string to check.
-        
-        Returns:
-            True if input is a URL, False otherwise.
-        """
+
+_EXTENSIONS: dict[FileKind, frozenset[str]] = {
+    FileKind.VIDEO: frozenset({".mp4", ".mkv", ".webm", ".ts", ".flv", ".mov", ".avi", ".wmv",
+                               ".m4v", ".mpg", ".mpeg", ".m2ts", ".mts", ".3gp", ".ogv"}),
+    FileKind.AUDIO: frozenset({".oga", ".mp3", ".aac", ".m4a", ".wav", ".flac", ".opus", ".ogg", ".ac3", ".eac3",
+                               ".mka", ".wma", ".aiff", ".aif", ".weba"}),
+    FileKind.TRANSCRIPT: frozenset({".json"}),
+    FileKind.SUBTITLE: frozenset({".srt", ".ass", ".ssa", ".vtt", ".sbv"}),
+    FileKind.TEXT: frozenset({".txt"}),
+    FileKind.IMAGE: frozenset({".jpg", ".bmp", ".png", ".jpeg", ".webp"}),
+}
+
+_KIND_BY_EXTENSION = {extension: kind for kind, extensions in _EXTENSIONS.items() for extension in extensions}
+
+
+def kind_of(path: Path) -> FileKind:
+    """Classifies a file by its extension."""
+    return _KIND_BY_EXTENSION.get(path.suffix.lower(), FileKind.UNKNOWN)
+
+
+def supported_inputs() -> str:
+    """Lists the extensions baberu accepts as input, for error messages."""
+    kinds = (FileKind.VIDEO, FileKind.AUDIO, FileKind.TRANSCRIPT, FileKind.SUBTITLE)
+    return " ".join(sorted(extension for kind in kinds for extension in _EXTENSIONS[kind]))
+
+
+def is_url(text: str) -> bool:
+    """Checks whether the text is a URL rather than a file path."""
+    try:
+        parsed = parse.urlparse(text)
+    except ValueError:
+        return False
+    return bool(parsed.scheme and parsed.netloc)
+
+
+@contextmanager
+def atomic_path(target: Path) -> Iterator[Path]:
+    """Gives a temporary path that becomes `target` only if the block succeeds.
+
+    An interrupted write therefore can't leave a half-written file that a
+    later run would trust. The temporary name keeps the extension because
+    ffmpeg and pysubs2 choose their format from it.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f"{target.stem}.tmp-{os.getpid()}{target.suffix}")
+    try:
+        yield temporary
+        _replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _replace(source: Path, target: Path) -> None:
+    # Sync clients and antivirus can hold a new file open for a moment on Windows.
+    for delay in (0.1, 0.3, 1.0):
         try:
-            parsed = parse.urlparse(input_str)
-            return all([parsed.scheme, parsed.netloc])
-        except (ValueError, AttributeError):
-            return False
+            os.replace(source, target)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    os.replace(source, target)
 
-    @staticmethod
-    def _is_of_type(file: Path | None, suffixes: frozenset[str]) -> bool:
-        """
-        Check if a file's suffix is in a given set.
-        """
-        return file is not None and file.suffix.lower() in suffixes
 
-    @staticmethod
-    def is_video(file: Path | None) -> bool:
-        """Checks if the file is a video."""
-        return formats._is_of_type(file, VIDEO_SUFFIXES)
+def atomic_write_text(target: Path, text: str) -> None:
+    with atomic_path(target) as temporary:
+        temporary.write_text(text, encoding="utf-8")
 
-    @staticmethod
-    def is_audio(file: Path | None) -> bool:
-        """Checks if the file is an audio file."""
-        return formats._is_of_type(file, AUDIO_SUFFIXES)
 
-    @staticmethod
-    def is_json(file: Path | None) -> bool:
-        """Checks if the file is a JSON file."""
-        return formats._is_of_type(file, JSON_SUFFIXES)
-
-    @staticmethod
-    def is_sub(file: Path | None) -> bool:
-        """Checks if the file is a subtitle file."""
-        return formats._is_of_type(file, SUBTITLE_SUFFIXES)
-
-    @staticmethod
-    def is_text(file: Path | None) -> bool:
-        """Checks if the file is a text file."""
-        return formats._is_of_type(file, TEXT_SUFFIXES)
-
-    @staticmethod
-    def is_image(file: Path | None) -> bool:
-        """Checks if the file is an image file."""
-        return formats._is_of_type(file, IMAGE_SUFFIXES)
-
-def get_file_root(file_path: Path | None = None, lang_to: str = "en") -> str:
-    """Gets the file's root name by stripping known suffixes."""
-    if not file_path:
-        return ""
-
-    path_without_suffix = file_path.with_suffix('')
-    name = re.sub(r"\.L\d+-\d+$", "", path_without_suffix.name)
-    suffixes = [*BABERU_SUFFIXES, f".{lang_to}"]
-
-    stripped = True
-    while stripped:
-        stripped = False
-        for code in suffixes:
-            if name.endswith(code) and name != code:
-                name = name[:-len(code)]
-                stripped = True
-
-    return str(path_without_suffix.with_name(name))
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def get_project_dir(marker: str = "pyproject.toml") -> Path:

@@ -1,11 +1,6 @@
-from pathlib import Path
-
-import pytest
-
 from baberu.settings import MistimedSegmentSettings, PaddingSettings
 from baberu.subtitling import sub_correction, sub_utils
 from baberu.subtitling.types import LineRange
-from baberu.tools import file_utils
 from conftest import make_subs
 
 
@@ -59,11 +54,3 @@ def test_md_to_ass_converts_emphasis():
     subs = make_subs([(0, 1, "*i* **b**")])
 
     assert sub_utils.md_to_ass(subs).events[0].text == r"{\i1}i{\i0} {\b1}b{\b0}"
-
-
-@pytest.mark.parametrize(
-    "name,root",
-    [("video.mp4", "video"), ("video.raw.ass", "video"), ("video.en.ass", "video"), ("video.2pass.ass", "video")],
-)
-def test_file_root_strips_known_suffixes(name, root):
-    assert file_utils.get_file_root(Path("dir") / name) == str(Path("dir") / root)
