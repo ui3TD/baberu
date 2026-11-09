@@ -18,8 +18,8 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
     *   **`translate`:** Translates subtitles using an LLM with user-provided or auto-generated grounded context.
     *   **`pad`:** Adjusts subtitle timings to meet readability standards (CPS, lead-in/out).
 *   **AI Service Integration:**
-    *   **Transcription:** ElevenLabs, OpenAI (Whisper), Fireworks AI (Whisper-v3).
-    *   **Translation (LLMs):** Google Gemini, Anthropic Claude, OpenAI GPT, Grok, Deepseek, and various models via OpenRouter.
+    *   **Transcription:** ElevenLabs, OpenAI (Whisper).
+    *   **Translation (LLMs):** Google Gemini, Anthropic Claude, OpenAI GPT, Grok, and various models via OpenRouter.
 *   **Targeted Processing:** Apply fixes, translations, or re-transcription to a specific range of lines with the `--lines` flag.
 *   **Output Options:**
     *   Generate a final subtitles file in any common format (`--output`).
@@ -42,10 +42,6 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
         ```bash
         export OPENAI_API_KEY="your_openai_api_key"
         ```
-    *   **Fireworks AI:** For models containing `whisper-v3`.
-        ```bash
-        export FIREWORKS_API_KEY="your_fireworks_ai_api_key"
-        ```
 
     **Language Model (LLM) Providers (for `--translate`, optionally `--convert` and `--retranscribe`):**
     *   **Google Gemini:** For models containing `gemini`.
@@ -63,10 +59,6 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
     *   **xAI:** For models containing `grok`.
         ```bash
         export XAI_API_KEY="your_xai_api_key"
-        ```
-    *   **Deepseek:** For models containing `deepseek`.
-        ```bash
-        export DEEP_API_KEY="your_deepseek_api_key"
         ```
     *   **OpenRouter:** For any model specified in `creator/model` format (e.g., `mistralai/mistral-7b-instruct`).
         ```bash
@@ -110,14 +102,14 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
 *   `-c`, `--convert`: Convert `.json` transcription to raw subtitles (`.raw.ass`).
 *   `-r [PATH|'auto']`, `--retranscribe [PATH|'auto']`: Refine specific subtitle segments via re-transcription (generates `.2pass.ass`). Requires audio: `'auto'` uses pipeline audio, `PATH` specifies an audio file. (Requires ElevenLabs API key).
 *   `-f`, `--fix`: Apply automated timing corrections (generates `.fixed.ass`).
-*   `-t [PATH|'auto']`, `--translate [PATH|'auto']`: Translate subtitles to English (generates `.en.ass`) using Google Gemini. (Requires API key).
+*   `-t [PATH|'auto']`, `--translate [PATH|'auto']`: Translate subtitles (generates `.en.ass`, or `.<lang>.ass` with `--lang-to`) using the configured model. (Requires API key).
     *   `'auto'`: Generate/use context summary (`.context.txt`).
     *   `PATH`: Use context from the specified text file (cannot be named `auto`).
 *   `-p`, `--pad`: Apply timing padding and conform to readability standards (generates `.padded.ass`).
 
 **Targeted Processing**
 
-*   `--lines XX-YY|XX`: Restrict processing for `retranscribe`, `fix`, `translate`, and `pad` stages to a specific line range (e.g., `10-15`) or a single line (e.g., `10`). Indices are 1-based and inclusive. This generates a separate output file (e.g., `.fixed_custom.ass`).
+*   `--lines XX-YY|XX`: Restrict processing for `retranscribe`, `fix`, `translate`, and `pad` stages to a specific line range (e.g., `10-15`) or a single line (e.g., `10`). Indices are 1-based and inclusive. This generates a separate output file for that range (e.g., `.fixed_custom.L10-15.ass`).
 
 **Output & Finalization**
 
@@ -156,7 +148,7 @@ Specify flags to activate corresponding steps. Steps are skipped if their expect
 
 5.  **Fix only lines 50 to 62 in an existing subtitle file:**
     ```bash
-    # Generates a .fixed_custom.ass file
+    # Generates a .fixed_custom.L50-62.ass file
     baberu subs.ass -f --lines 50-62
     ```
 

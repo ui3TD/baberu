@@ -1,18 +1,16 @@
 import pysubs2
 from pysubs2 import SSAFile
-from typing import Tuple
 
 import logging
+
+from baberu.settings import MistimedSegmentSettings, PaddingSettings
+from baberu.subtitling.types import LineRange
 
 logger = logging.getLogger(__name__)
 
 def find_mistimed_lines(subtitles: SSAFile, 
                         threshold: float,
-                        grp_min_lines: int = 4,
-                        grp_backtrace_limit: int = 20,
-                        grp_foretrace_limit: int = 5,
-                        grp_min_delay_sec: float = 10,
-                        grp_max_gap: int = 4) -> set[int]:
+                       segs: MistimedSegmentSettings) -> set[int]:
     """Identifies subtitle lines that are likely mistimed.
 
     This function finds lines with a duration below a given threshold,
@@ -22,11 +20,7 @@ def find_mistimed_lines(subtitles: SSAFile,
     Args:
         subtitles (SSAFile): The subtitle file to process.
         threshold (float): Duration in seconds below which a line is considered short.
-        grp_min_lines (int): Minimum number of consecutive short lines to form a group.
-        grp_backtrace_limit (int): Max number of lines to search backward from a group.
-        grp_foretrace_limit (int): Max number of lines to search forward from a group.
-        grp_min_delay_sec (float): Minimum duration for a line to be considered a valid boundary.
-        grp_max_gap (int): Maximum number of lines between two groups to be merged.
+        segs (MistimedSegmentSettings): Limits for grouping and expanding short lines.
 
     Returns:
         set[int]: A set of zero-based indices corresponding to mistimed subtitle lines.
@@ -48,7 +42,7 @@ def find_mistimed_lines(subtitles: SSAFile,
     mistimed_subtitles = _fill_gaps(mistimed_subtitles)
 
     # Group consecutive short subtitles
-    groups = find_mistimed_groups(mistimed_subtitles, grp_min_lines)
+    groups = find_mistimed_groups(mistimed_subtitles, segs.seg_min_lines)
 
     if not groups:
         return mistimed_subtitles
@@ -57,7 +51,7 @@ def find_mistimed_lines(subtitles: SSAFile,
     for group in groups:
         # Expand backward
         indices_backward = _expand_mistimed_group(
-            subtitles, group[0] - 1, -1, grp_backtrace_limit, grp_min_delay_sec
+            subtitles, group[0] - 1, -1, segs.seg_backtrace_limit, segs.seg_min_delay
         )
         
         if indices_backward:
@@ -68,7 +62,7 @@ def find_mistimed_lines(subtitles: SSAFile,
     
         # Expand forward
         indices_forward = _expand_mistimed_group(
-            subtitles, group[-1] + 1, 1, grp_foretrace_limit, grp_min_delay_sec
+            subtitles, group[-1] + 1, 1, segs.seg_foretrace_limit, segs.seg_min_delay
         )
         
         if indices_forward:
@@ -81,7 +75,7 @@ def find_mistimed_lines(subtitles: SSAFile,
             logger.warning(f"Failed to extend group ({group[0] + 1}-{group[-1] + 1})")
 
     # Merge large groups that are close
-    mistimed_subtitles = _merge_nearby_groups(mistimed_subtitles, groups, grp_max_gap)
+    mistimed_subtitles = _merge_nearby_groups(mistimed_subtitles, groups, segs.seg_max_gap)
     return mistimed_subtitles
 
 def find_mistimed_groups(mistimed_lines: set[int], 
@@ -114,12 +108,8 @@ def find_mistimed_groups(mistimed_lines: set[int],
 
 def fix_mistimed_lines(subtitles: SSAFile, 
                        threshold: float,
-                        grp_min_lines: int = 4,
-                        grp_backtrace_limit: int = 20,
-                        grp_foretrace_limit: int = 5,
-                        grp_min_delay_sec: float = 10,
-                        grp_max_gap: int = 4,
-                        segment: list[int] = []) -> SSAFile:
+                       segs: MistimedSegmentSettings,
+                        line_range: LineRange | None = None) -> SSAFile:
     """Finds and corrects mistimed subtitles by redistributing their timing.
 
     This function identifies groups of short-duration subtitles and merges them
@@ -128,17 +118,13 @@ def fix_mistimed_lines(subtitles: SSAFile,
     Args:
         subtitles (SSAFile): The subtitle file to correct.
         threshold (float): Duration in seconds below which a line is considered mistimed.
-        grp_min_lines (int): Minimum number of consecutive short lines to form a group.
-        grp_backtrace_limit (int): Max number of lines to search backward from a group.
-        grp_foretrace_limit (int): Max number of lines to search forward from a group.
-        grp_min_delay_sec (float): Minimum duration for a line to be considered a valid boundary.
-        grp_max_gap (int): Maximum number of lines between two groups to be merged.
-        segment (list[int]): Optional line range to restrict the operation.
+        segs (MistimedSegmentSettings): Limits for grouping and expanding short lines.
+        line_range (LineRange | None): Restricts the operation to these lines.
 
     Returns:
         SSAFile: The subtitle object with corrected timings.
     """
-    mistimed_indices: set[int] = find_mistimed_lines(subtitles, threshold, grp_min_lines, grp_backtrace_limit, grp_foretrace_limit, grp_min_delay_sec, grp_max_gap)
+    mistimed_indices: set[int] = find_mistimed_lines(subtitles, threshold, segs)
     
     if not mistimed_indices:
         return subtitles
@@ -146,8 +132,8 @@ def fix_mistimed_lines(subtitles: SSAFile,
     groups: list[list[int]] = find_mistimed_groups(mistimed_indices, 1)
 
     # Filter for segment
-    if segment:
-        segment_start, segment_end = min(segment), max(segment)
+    if line_range:
+        segment_start, segment_end = line_range.start, line_range.end
         groups = [
             group for group in groups 
             if min(group) <= segment_end and max(group) >= segment_start
@@ -171,20 +157,20 @@ def fix_mistimed_lines(subtitles: SSAFile,
     return subtitles
 
 def remove_empty(subtitles: SSAFile,
-                 segment: list[int] = []) -> SSAFile:
+                 line_range: LineRange | None = None) -> SSAFile:
     """Removes all subtitle events that contain no text.
 
     Args:
         subtitles (SSAFile): The subtitle object to process.
-        segment (list[int]): Optional line range to restrict the operation.
+        line_range (LineRange | None): Restricts the operation to these lines.
 
     Returns:
         SSAFile: The subtitle object with empty lines removed.
     """
     original_count = len(subtitles.events)
 
-    if segment:
-        segment_start, segment_end = min(segment), max(segment)
+    if line_range:
+        segment_start, segment_end = line_range.start, line_range.end
         
         subtitles.events = [
             event for i, event in enumerate(subtitles.events)
@@ -198,12 +184,9 @@ def remove_empty(subtitles: SSAFile,
         logger.debug(f"Removed {removed_count} empty subtitle(s).")
     return subtitles
 
-def apply_timing_standards(subtitles: SSAFile, 
-               max_lead_out_sec: float = 1.0,
-               max_lead_in_sec: float = 0.25,
-               max_cps: float = 20.0,
-               min_sec: float = 1.0,
-               segment: list[int] = []) -> SSAFile:
+def apply_timing_standards(subtitles: SSAFile,
+                           padding: PaddingSettings,
+                           line_range: LineRange | None = None) -> SSAFile:
     """Extends subtitle durations to meet minimum duration and CPS standards.
 
     This function adjusts the end time (and start time, if necessary) of each
@@ -212,11 +195,8 @@ def apply_timing_standards(subtitles: SSAFile,
 
     Args:
         subtitles (SSAFile): The subtitle object to process.
-        max_lead_out_sec (float): Maximum seconds to extend a line's end time.
-        max_lead_in_sec (float): Maximum seconds to extend a line's start time.
-        max_cps (float): Maximum characters per second to enforce.
-        min_sec (float): Minimum duration in seconds for any subtitle line.
-        segment (list[int]): Optional line range to restrict the operation.
+        padding (PaddingSettings): Duration and reading-speed limits.
+        line_range (LineRange | None): Restricts the operation to these lines.
 
     Returns:
         SSAFile: The subtitle object with extended durations.
@@ -229,10 +209,8 @@ def apply_timing_standards(subtitles: SSAFile,
 
     # Determine the range of indices to process based on the segment
     process_range = range(num_events)
-    if segment:
-        start_idx = min(segment)
-        end_idx = max(segment)
-        process_range = range(start_idx, end_idx + 1)
+    if line_range:
+        process_range = range(line_range.start, line_range.end + 1)
     
     for i in process_range:
         current_subtitle = subtitles.events[i]
@@ -242,11 +220,11 @@ def apply_timing_standards(subtitles: SSAFile,
             continue # Skip empty lines
 
         # Calculate the minimum duration required
-        target_duration_ms = max((text_length / max_cps) * 1000.0 if max_cps > 0 else 0, min_sec * 1000)
+        target_duration_ms = max((text_length / padding.max_cps) * 1000.0 if padding.max_cps > 0 else 0, padding.min_sec * 1000)
 
         # Calculate the target end time
         target_end_time = current_subtitle.start + target_duration_ms
-        max_target_end_time = current_subtitle.end + max_lead_out_sec * 1000
+        max_target_end_time = current_subtitle.end + padding.max_lead_out_sec * 1000
         target_end_time = min(target_end_time, max_target_end_time)
         
         # Only extend if the current duration is shorter than required
@@ -276,7 +254,7 @@ def apply_timing_standards(subtitles: SSAFile,
         if target_duration_ms > new_duration:    
             # Calculate how much more time we need
             remaining_ms_needed = target_duration_ms - new_duration
-            target_backward_ms = min(remaining_ms_needed, max_lead_in_sec * 1000)
+            target_backward_ms = min(remaining_ms_needed, padding.max_lead_in_sec * 1000)
             
             # Find the end time of the previous subtitle with the same style
             prev_end_time = 0
@@ -306,9 +284,9 @@ def apply_timing_standards(subtitles: SSAFile,
                 modified_count += 1
 
     if modified_count > 0:
-        logger.debug(f"Extended {modified_count} subtitle(s) to meet max CPS of {max_cps}")
+        logger.debug(f"Extended {modified_count} subtitle(s) to meet max CPS of {padding.max_cps}")
     else:
-        logger.debug(f"No subtitles required extension to meet max CPS of {max_cps}.")
+        logger.debug(f"No subtitles required extension to meet max CPS of {padding.max_cps}.")
         
     return subtitles
 
@@ -436,107 +414,3 @@ def _redistribute_backward(subtitles: SSAFile,
         subtitles.events[idx].end = current_time
     
     return subtitles
-
-def _expand_mistimed_group_by_time(
-        subtitles: SSAFile, 
-        start_idx: int, 
-        direction: int, 
-        time_limit_sec: float, 
-        boundary_threshold_sec: float) -> set[int]:
-    """
-    TO-DO: NOT YET IMPLEMENTED
-    
-    Expands a group of mistimed lines by searching for the most distant 
-    adjacent boundary line within a time limit.
-    """
-    found_boundary_idx = None
-    
-    traversed_indices = set()
-    
-    time_traced_ms = 0
-    idx = start_idx
-    
-    end_condition = idx >= 0 if direction < 0 else idx < len(subtitles.events)
-    
-    while end_condition:
-        subtitle = subtitles.events[idx]
-        duration_ms = subtitle.end - subtitle.start
-        
-        if time_traced_ms + duration_ms > time_limit_sec * 1000:
-            break
-            
-        time_traced_ms += duration_ms
-        traversed_indices.add(idx)
-        
-        if duration_ms / 1000.0 > boundary_threshold_sec:
-            found_boundary_idx = idx
-            
-        idx += direction
-        end_condition = idx >= 0 if direction < 0 else idx < len(subtitles.events)
-
-    if found_boundary_idx is None:
-        return set()
-
-    if direction < 0: 
-        return {i for i in traversed_indices if i >= found_boundary_idx}
-    else:
-        return {i for i in traversed_indices if i <= found_boundary_idx}
-    
-def find_long_lines(subtitles: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
-    """
-    TO-DO: NOT YET IMPLEMENTED
-
-    Identifies subtitle lines with a duration longer than a given threshold.
-
-    Args:
-        subtitles (SSAFile): The loaded subtitle file.
-        threshold_sec (float): The minimum duration in seconds for a line to be
-                            considered "long".
-
-    Returns:
-        List[Tuple[int, int]]: A list of tuples, where each tuple contains
-        the start time (ms), and end time (ms) of a long line.
-    """
-    long_lines = []
-    threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
-    for line in subtitles:
-        duration = line.end - line.start
-        if duration > threshold_ms:
-            long_lines.append((line.start, line.end))
-    return long_lines
-
-def find_long_gaps(subtitles: SSAFile, threshold_sec: float) -> list[Tuple[int, int]]:
-    """
-    TO-DO: NOT YET IMPLEMENTED
-
-    Identifies gaps between consecutive subtitle lines longer than a given threshold.
-
-    Args:
-        subtitles (SSAFile): The loaded subtitle file.
-        threshold_sec (float): The minimum duration in seconds for a gap to be
-                            considered "long".
-
-    Returns:
-        List[Tuple[int, int]]: A list of tuples, where each tuple contains the
-        start of the gap (ms), and end of the gap (ms).
-    """
-    if len(subtitles) < 2:
-        return []
-
-    subtitles.sort()
-
-    long_gaps = []
-    threshold_ms = pysubs2.time.times_to_ms(s=threshold_sec)
-
-    for i in range(len(subtitles) - 1):
-        current_line = subtitles[i]
-        next_line = subtitles[i+1]
-        
-        gap_duration = next_line.start - current_line.end
-        
-        if gap_duration > threshold_ms:
-            gap_start = current_line.end
-            gap_end = next_line.start
-            long_gaps.append((gap_start, gap_end))
-            
-    return long_gaps

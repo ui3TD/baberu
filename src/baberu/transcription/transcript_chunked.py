@@ -6,9 +6,32 @@ import tempfile
 import math
 import ffmpeg
 
-from LLMFactory.transcription.base import TranscriptionResult, TranscriptionProvider, TranscribedSegment
+from LLMFactory.transcription.base import (
+    TranscribedSegment,
+    TranscriptionProvider,
+    TranscriptionResult,
+    WritableTranscriptionProvider,
+)
 
 logger = logging.getLogger(__name__)
+
+def transcribe_file(audio_file: Path,
+                    provider: TranscriptionProvider,
+                    lang: str | None) -> tuple[TranscriptionResult, dict[str, Any]]:
+    """Transcribes a file, splitting it first if it is over the provider's size limit.
+
+    Returns:
+        The transcript, and its JSON form in the provider's format for saving.
+    """
+    max_size = provider.max_size_bytes
+    if max_size and audio_file.stat().st_size > max_size:
+        if not isinstance(provider, WritableTranscriptionProvider):
+            raise TypeError(f"{type(provider).__name__} has a size limit but can't save chunked results.")
+        transcript = transcribe_in_chunks(audio_file, provider, lang=lang)
+        return transcript, type(provider).to_provider_format(transcript)
+
+    json_data = provider.transcribe(audio_file, lang=lang)
+    return type(provider).parse(json_data), json_data
 
 def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang: str | None) -> TranscriptionResult:
     """

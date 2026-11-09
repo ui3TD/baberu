@@ -7,7 +7,7 @@ import sys
 import pytest
 import yaml
 
-import baberu.__main__ as cli
+import baberu.cli as cli
 from baberu.subtitling import sub_utils
 from baberu.tools import av_utils
 from baberu.transcription import transcript_segmented
@@ -175,3 +175,38 @@ def test_hardcode_with_absolute_subtitle_path(media, tmp_path, monkeypatch):
     av_utils.hardcode_subtitles(media / "clip.mp4", media / "subs.ass", media / "out.mp4")
 
     assert (media / "out.mp4").stat().st_size > 0
+
+
+def test_existing_full_run_files_resume_without_any_model_calls(workspace, monkeypatch, fake_llms):
+    audio = workspace / "show.m4a"
+    audio.touch()
+    (workspace / "show.json").write_text(
+        '{"text": "hi", "segments": [{"text": "hi", "start": 0, "end": 1}], "words": [{"word": "hi", "start": 0, "end": 1}]}',
+        encoding="utf-8",
+    )
+    (workspace / "show.context.txt").write_text("notes", encoding="utf-8")
+    for stage in ("raw", "2pass", "fixed", "en", "padded"):
+        sub_utils.write(make_subs([(0, 5000, stage)]), workspace / f"show.{stage}.ass")
+
+    def no_network(model):
+        raise AssertionError("transcription should have been skipped")
+
+    monkeypatch.setattr(cli.pipeline.AIToolFactory, "get_transcription_provider", staticmethod(no_network))
+
+    run(monkeypatch, audio, "-A", "--model", "main")
+
+    assert fake_llms["main"].calls == []
+
+
+def test_config_written_before_the_rename_still_loads():
+    from baberu.settings import Settings
+
+    settings = Settings.model_validate({"transcription": {"elevenlabs_model": "scribe_v1"}})
+
+    assert settings.transcription.model == "scribe_v1"
+    assert settings.translation.batch_lines == 50
+
+
+def test_missing_config_file_is_reported(workspace, monkeypatch):
+    with pytest.raises(FileNotFoundError):
+        run(monkeypatch, workspace / "video.ass", "--config", workspace / "nope.yaml")

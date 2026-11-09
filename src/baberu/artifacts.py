@@ -67,6 +67,10 @@ class Artifacts:
     def padded(self) -> Path:
         return self._stage("padded", "padded_custom")
 
+    def segment_transcript(self, audio_file: Path, start_ms: int, end_ms: int) -> Path:
+        """Saved result of re-transcribing one stretch of audio, kept beside the audio."""
+        return audio_file.with_suffix(f".{start_ms}-{end_ms}.ass")
+
     def partial_translation(self) -> Path:
         if self.lines_label:
             return self._resolve(f".partial.{self._translation_tag}.{self.lines_label}.txt")

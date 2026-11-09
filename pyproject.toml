@@ -14,7 +14,9 @@ requires-python = ">=3.12"
 dependencies = [
     "ffmpeg-python>=0.2.0",
     "langcodes[data]>=3.5.0",
-    "platformdirs>=4.2.0", 
+    "LLMFactory @ git+https://github.com/ui3TD/LLMFactory@v0.2.0",
+    "platformdirs>=4.2.0",
+    "pydantic>=2.11.7",
     "pysubs2>=1.8.0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",

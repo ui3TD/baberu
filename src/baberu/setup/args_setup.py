@@ -1,30 +1,8 @@
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 
 import logging
 
 logger = logging.getLogger(__name__)
-
-class args(Namespace):
-    source_file_path: str
-    directory: str | None
-    extract: bool | None
-    speech_to_text: bool | None
-    convert: bool | None
-    retranscribe: str | None
-    translate: str | None
-    fix: bool | None
-    buffer: bool | None
-    output: str | None
-    wizard: bool | None
-    num_speakers: int | None
-    model: str | None
-    lang_to: str | None
-    lang_from: str | None
-    auto_pilot: bool | None
-    hardcode: str | None
-    audio_to_video: str | None
-    retranscribe_lines: str | None
-    lines: str | None
 
 def init_parser() -> ArgumentParser:
     """Initializes and configures the command-line interface argument parser.
@@ -76,9 +54,10 @@ def init_parser() -> ArgumentParser:
     parser.add_argument('-o', '--output',
                         metavar='OUTPUT FILE',
                         help='Path to the output file')
-    parser.add_argument('--num-speakers',
-                        type=int,
-                        help='Number of speakers')
+    parser.add_argument('--config',
+                        type=str,
+                        metavar='CONFIG FILE',
+                        help='Path to a config file to use instead of the default')
     parser.add_argument('--model',
                         type=str,
                         help='Name of LLM model for translation')

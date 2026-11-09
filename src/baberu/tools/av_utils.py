@@ -71,7 +71,7 @@ def extract_audio(video_file: Path,
         codec_name = get_audio_codec(video_file)
         if not codec_name:
             raise ValueError(
-                f"No audio codec found for direct copy extraction. "
+                "No audio codec found for direct copy extraction. "
             )
         base_path = video_file.parent / video_file.stem
         output_file = base_path.with_suffix("." + codec_name)

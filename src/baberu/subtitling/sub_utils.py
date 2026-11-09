@@ -4,6 +4,8 @@ import logging
 
 from pysubs2 import SSAFile
 
+from baberu.subtitling.types import LineRange
+
 logger = logging.getLogger(__name__)
 
 def load(file: Path) -> SSAFile:
@@ -40,23 +42,19 @@ def write(sub_file: SSAFile,
     return output_file
 
 def splice(subtitles: SSAFile, 
-           segment: list[int], 
+           line_range: LineRange,
            new_subtitles: SSAFile) -> SSAFile:
     """Replaces a segment of subtitle events with new events.
     
     Args:
         subtitles: The original SSAFile object to modify.
-        segment: A list with the start and end indices of the slice to replace.
+        line_range: The lines to replace.
         new_subtitles: An SSAFile object containing the new events to insert.
         
     Returns:
         The modified SSAFile object.
     """
-    if not segment:
-        logger.error(f"Segment must be a list of two indices [start, end]. Received: {segment}")
-        raise ValueError
-    
-    start_idx, end_idx = min(segment), max(segment)
+    start_idx, end_idx = line_range.start, line_range.end
     num_events = len(subtitles.events)
 
     if not (0 <= start_idx < num_events and 0 <= end_idx < num_events and start_idx <= end_idx):

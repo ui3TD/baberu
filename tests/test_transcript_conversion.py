@@ -1,8 +1,26 @@
 from LLMFactory.transcription.base import TranscribedSegment, TranscribedWord, TranscriptionResult
 
 from baberu.constants import CONTINUE_FLAG
-from baberu.transcription.transcript_conversion import convert_transcript_to_subs
+from baberu.settings import ParsingSettings
+from baberu.transcription import transcript_conversion
 from conftest import FakeLLM
+
+
+def convert_transcript_to_subs(transcript_data, soft_max_lines=20, hard_max_lines=50, hard_max_carryover=10,
+                               max_time_gap_sec=2.0, delimiters=(), soft_delimiters=(), model=""):
+    return transcript_conversion.convert_transcript_to_subs(
+        transcript_data,
+        ParsingSettings(
+            delimiters=list(delimiters),
+            soft_delimiters=list(soft_delimiters),
+            remove_text=[],
+            soft_max_chars=soft_max_lines,
+            hard_max_chars=hard_max_lines,
+            hard_max_carryover=hard_max_carryover,
+            max_time_gap_sec=max_time_gap_sec,
+            parsing_model=model,
+        ),
+    )
 
 
 def word(text: str, start: float, end: float, kind: str = "word") -> TranscribedWord:

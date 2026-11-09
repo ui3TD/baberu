@@ -1,3 +1,5 @@
+from collections.abc import Callable
+import functools
 import json
 from pysubs2 import SSAFile, SSAEvent
 from typing import Any
@@ -11,9 +13,13 @@ from LLMFactory.factory import AIToolFactory
 from LLMFactory.llm.base import LLMProvider
 from LLMFactory.transcription.base import TranscriptionResult, TranscribedSegment, TranscribedWord
 from baberu.constants import CONTINUE_FLAG
+from baberu.settings import ParsingSettings
 from baberu.subtitling.types import SubtitleLine
 
 logger = logging.getLogger(__name__)
+
+SPLIT_SYSTEM_PROMPT = "Provide only the requested text without commentary or special formatting."
+SPLIT_USER_PROMPT = "Split the following text into two lines at a logical point without modifications to the text or punctuation:"
 
 def write_transcript_json(json_data: dict[str, Any], 
                           output_file: Path) -> Path:
@@ -23,21 +29,20 @@ def write_transcript_json(json_data: dict[str, Any],
     logger.info(f"Audio transcription saved to {output_file}")
     return output_file
 
-def convert_transcript_to_subs(
-        transcript: TranscriptionResult,
-        delimiters: list[str] = [],
-        soft_delimiters: list[str] = [],
-        remove_text: list[str] = [],
-        soft_max_lines: int = 20,
-        hard_max_lines: int = 50,
-        hard_max_carryover: int = 10,
-        max_time_gap_sec: float = 2,
-        model: str | None = "") -> SSAFile:
-    """Converts a transcription object to a subtitle file object.
+def load_transcript_json(json_file: Path) -> TranscriptionResult:
+    """Reads a saved transcript, using the parser for whichever service wrote it."""
+    with open(json_file, 'r', encoding='utf-8') as f:
+        json_data = json.load(f)
 
-    This function processes word-level timestamp data, merges words into lines based
-    on delimiters and length constraints, and formats the result as an SSAFile object.
-    """
+    # Scribe responses have language_code; Whisper responses have language.
+    model = "scribe" if "language_code" in json_data else "whisper-1"
+    provider_type = AIToolFactory.get_transcription_provider_type(model)
+    return provider_type.parse(provider_type.validate(json_data))
+
+def convert_transcript_to_subs(transcript: TranscriptionResult, parsing: ParsingSettings) -> SSAFile:
+    """Turns word-level timings into subtitle lines using delimiters and length limits."""
+    get_splitter: Callable[[], LLMProvider] = functools.cache(lambda: AIToolFactory.get_llm_provider(
+        model_name=parsing.parsing_model, system_prompt=SPLIT_SYSTEM_PROMPT))
     all_lines: list[SubtitleLine] = []
 
     for segment in transcript.segments:
@@ -45,25 +50,9 @@ def convert_transcript_to_subs(
             word for word in segment.words if word.type in ("word", "spacing")
         ]
 
-        if not segment.words:
-            continue
+        if segment.words:
+            all_lines.extend(_delimit_segment(segment, parsing, get_splitter))
 
-        # Merge segment into lines by delimiter
-        segment_lines = _delimit_segment(
-            segment=segment, 
-            delimiters=delimiters, 
-            soft_delimiters=soft_delimiters, 
-            remove_text=remove_text,
-            soft_max_lines=soft_max_lines, 
-            hard_max_lines=hard_max_lines, 
-            hard_max_carryover=hard_max_carryover, 
-            max_time_gap_sec=max_time_gap_sec,
-            model=model)
-
-        all_lines.extend(segment_lines)
-
-
-    # Create subtitle file objects
     sub_file: SSAFile = SSAFile()
 
     for line in all_lines:
@@ -78,26 +67,20 @@ def convert_transcript_to_subs(
     logger.debug(f"Converted {len(all_lines)} lines to ASS format")
     return sub_file
 
-def _delimit_segment(
-        segment: TranscribedSegment,
-        delimiters: list[str],
-        soft_delimiters: list[str],
-        remove_text: list[str],
-        soft_max_lines: int,
-        hard_max_lines: int,
-        hard_max_carryover: int,
-        max_time_gap_sec: float,
-        model: str | None
-        ) -> list[SubtitleLine]:
+def _delimit_segment(segment: TranscribedSegment,
+                     parsing: ParsingSettings,
+                     get_splitter: Callable[[], LLMProvider]) -> list[SubtitleLine]:
     """Merges a list of word objects into formatted subtitle lines."""
-    
+    delimiters = parsing.delimiters
+    soft_delimiters = parsing.soft_delimiters
+    remove_text = parsing.remove_text
+
     sub_lines: list[SubtitleLine] = []
     current_words: list[TranscribedWord] = []
-    api_response: str = ""
 
     for word in segment.words:
         # Break on time gap
-        if current_words and word.start - current_words[-1].end > max_time_gap_sec:
+        if current_words and word.start - current_words[-1].end > parsing.max_time_gap_sec:
             sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
             if sub_line.text not in soft_delimiters + delimiters:
                 sub_lines.append(sub_line)
@@ -133,69 +116,9 @@ def _delimit_segment(
             force_break = True
 
         # Break on hard max limit
-        if len(current_text) > hard_max_lines:
-            carryover_word_count = 0
-            if model:
-                try:
-                    leading_space: str = current_text[:len(current_text) - len(current_text.lstrip())]
-                    trailing_space: str = current_text[len(current_text.rstrip()):]
-                    trimmed_current_text: str = current_text.strip()
+        if len(current_text) > parsing.hard_max_chars:
+            carryover_word_count = _count_carryover_words(current_words, current_text, parsing, get_splitter)
 
-                    sys_prompt = "Provide only the requested text without commentary or special formatting."
-                    user_prompt = f"Split the following text into two lines at a logical point without modifications to the text or punctuation:\n{trimmed_current_text}"
-
-                    logger.debug(f"Using AI to split line: '{trimmed_current_text}'")
-                    client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, system_prompt=sys_prompt)
-                    api_response = client.prompt(user_prompt)
-
-                    lines = api_response.strip().split('\n')
-                    line1_text = leading_space + lines[0].strip()
-                    line2_text = lines[1].strip() + trailing_space
-
-                    # Validate the API response
-                    if len(lines) == 2 and current_text.startswith(line1_text) and current_text.endswith(line2_text):
-                        rebuilt_carryover_text = ""
-
-                        # Reconstruct the second line from words to get an accurate word count
-                        for word_obj in reversed(current_words):
-                            rebuilt_carryover_text = word_obj.text + rebuilt_carryover_text
-                            carryover_word_count += 1
-                            if rebuilt_carryover_text.endswith(line2_text):
-                                break # Match found
-                        else:
-                            # mismatch between the AI's split text and the source words.
-                            logger.warning(f"Warning: AI-split line did not match word objects: '{line2_text}'")
-                            raise ValueError
-                    else:
-                        logger.warning(f"Warning: AI returned invalid value.")
-                        raise ValueError
-
-                except Exception as e:
-                    logger.warning(f"Warning: AI returned error: '{e}'\nAPI response: {api_response}\nOriginal:    {current_text}")
-                    # Fall back to character count method
-                    carryover_chars = 0
-                    
-                    # Count words to carry over
-                    for i in range(len(current_words) - 1, -1, -1):
-                        word_text = current_words[i].text
-                        if carryover_chars + len(word_text) <= hard_max_carryover:
-                            carryover_chars += len(word_text)
-                            carryover_word_count += 1
-                        else:
-                            break
-            else:
-                # Fall back to character count method
-                carryover_chars = 0
-                
-                # Count words to carry over
-                for i in range(len(current_words) - 1, -1, -1):
-                    word_text = current_words[i].text
-                    if carryover_chars + len(word_text) <= hard_max_carryover:
-                        carryover_chars += len(word_text)
-                        carryover_word_count += 1
-                    else:
-                        break
-            
             if 0 < carryover_word_count < len(current_words):
                 # Keep some words in group
                 words_to_keep = current_words[:-carryover_word_count]
@@ -204,15 +127,15 @@ def _delimit_segment(
                     sub_line = _create_subtitle_line(words_to_keep, remove_text, clean=True)
                     sub_lines.append(sub_line)
 
-                # Start the new group with words carried over                 
+                # Start the new group with words carried over
                 current_words = current_words[-carryover_word_count:]
                 current_text = "".join(w.text for w in current_words)
             else:
-                # The current word *alone* is longer than hard_max_lines.
+                # The current word *alone* is longer than the limit.
                 force_break = True
 
         # Break on soft delimiters if over soft max limit
-        elif len(current_text) > soft_max_lines and any(word.text.endswith(d) for d in soft_delimiters):
+        elif len(current_text) > parsing.soft_max_chars and any(word.text.endswith(d) for d in soft_delimiters):
             force_break = True
 
         if force_break:
@@ -231,6 +154,50 @@ def _delimit_segment(
             sub_lines.append(sub_line)
 
     return sub_lines
+
+def _count_carryover_words(words: list[TranscribedWord],
+                           text: str,
+                           parsing: ParsingSettings,
+                           get_splitter: Callable[[], LLMProvider]) -> int:
+    """Decides how many trailing words move to the next subtitle line."""
+    if parsing.parsing_model:
+        response = ""
+        try:
+            logger.debug(f"Using AI to split line: '{text.strip()}'")
+            response = get_splitter().prompt(f"{SPLIT_USER_PROMPT}\n{text.strip()}")
+            return _words_in_second_line(words, text, response)
+        except Exception as e:
+            logger.warning(f"Warning: AI split failed: '{e}'\nAPI response: {response}\nOriginal:    {text}")
+
+    carryover_chars = 0
+    carryover_words = 0
+    for word in reversed(words):
+        if carryover_chars + len(word.text) > parsing.hard_max_carryover:
+            break
+        carryover_chars += len(word.text)
+        carryover_words += 1
+    return carryover_words
+
+def _words_in_second_line(words: list[TranscribedWord], text: str, response: str) -> int:
+    """Checks a model's two-line split against the source and maps it back to words."""
+    leading_space = text[:len(text) - len(text.lstrip())]
+    trailing_space = text[len(text.rstrip()):]
+
+    lines = response.strip().split('\n')
+    if len(lines) != 2:
+        raise ValueError("expected exactly two lines")
+
+    first_line = leading_space + lines[0].strip()
+    second_line = lines[1].strip() + trailing_space
+    if not (text.startswith(first_line) and text.endswith(second_line)):
+        raise ValueError("split does not match the original text")
+
+    rebuilt = ""
+    for count, word in enumerate(reversed(words), start=1):
+        rebuilt = word.text + rebuilt
+        if rebuilt.endswith(second_line):
+            return count
+    raise ValueError("split does not fall on a word boundary")
 
 def _create_subtitle_line(words: list[TranscribedWord], remove_text: list[str], clean: bool = False) -> SubtitleLine:
     """Combines a group of word objects into a single line dictionary."""

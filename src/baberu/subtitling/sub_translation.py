@@ -3,67 +3,53 @@ import time
 from pathlib import Path
 import logging
 
-import langcodes
-from langcodes.tag_parser import LanguageTagError
-from pysubs2 import SSAFile, SSAEvent
-
-from LLMFactory.factory import AIToolFactory
 from LLMFactory.llm.base import LLMProvider
-from baberu import constants
+from pysubs2 import SSAEvent, SSAFile
 
+from baberu import constants
+from baberu.settings import TranslationSettings
+from baberu.subtitling import translation_prompts, translation_response
+from baberu.subtitling.types import LineRange
 
 logger = logging.getLogger(__name__)
 
+ESTIMATED_SECONDS_PER_BATCH: float = 81
+
+
 def translate(sub_file: SSAFile,
-              output_file: Path, 
-              context_prompt: str, 
-              model: str,
-              fallback_model: str,
+              output_file: Path,
+              context_prompt: str,
+              llm: LLMProvider,
+              fallback_llm: LLMProvider | None,
               lang_from: str,
               lang_to: str,
-              context_lines: int = 100,
-              batch_lines: int = 50,
-              discard_lines: int = 10,
-              translate_retries: int = 3,
-              server_retries: int = 5,
-              max_cont_lines: int = 5,
-              segment: list[int] = []) -> list[str]:
-    """Translates a subtitle file from a source to a target language using an LLM.
-
-    Handles batching, context management, retries, and rate limiting.
+              options: TranslationSettings,
+              line_range: LineRange | None = None) -> list[str]:
+    """Translates a subtitle file, saving progress after every batch.
 
     Args:
-        sub_file: SSAFile object containing the source subtitles.
-        output_file: Path to save the translated subtitle text.
-        context_prompt: General context to guide the translation.
-        model: The LLM model to use for translation.
-        fallback_model: The LLM model to use for translation if the default on fails.
+        sub_file: The source subtitles.
+        output_file: Where progress is saved. An existing file is resumed.
+        context_prompt: Background notes to guide the translation.
+        llm: The model to translate with.
+        fallback_llm: A model to try on a batch the main model can't get right.
         lang_from: BCP 47 code for the source language.
         lang_to: BCP 47 code for the target language.
-        context_lines: Number of previous translations to use as context.
-        batch_lines: Number of lines to process in each API call.
-        discard_lines: Number of lookahead lines to add for context, then discard.
-        translate_retries: Number of retries for fixing line count mismatches.
-        server_retries: Number of retries for handling server/connection errors.
-        max_cont_lines: Maximum consecutive lines ending in a continuation flag to group into a batch.
-        segment: A list of two integers specifying the start and end line numbers to translate.
+        options: Batch sizes and retry limits.
+        line_range: Translates only these lines.
 
     Returns:
-        A list of the translated subtitle lines.
+        The lines up to and including the last one translated.
     """
-    def_time_per_batch: float = 81
     starting_index: int = 0
-
     translated_lines: list[str] = []
     ending_translated_lines: list[str] = []
 
-    if segment:
-        starting_index = min(segment)
-        ending_index = max(segment)
-        translated_lines = [i.text for i in sub_file.events[0:starting_index]]
-        ending_translated_lines = [i.text for i in sub_file.events[ending_index + 1:]]
+    if line_range:
+        starting_index = line_range.start
+        translated_lines = [i.text for i in sub_file.events[0:line_range.start]]
+        ending_translated_lines = [i.text for i in sub_file.events[line_range.end + 1:]]
 
-    # Check for existing translations
     source_record = output_file.with_name(output_file.name + ".source")
     fingerprint = _source_fingerprint(sub_file)
     if output_file.exists() and _partial_matches_source(source_record, fingerprint):
@@ -75,61 +61,46 @@ def translate(sub_file: SSAFile,
             logger.warning(f"Error loading existing translation file: {str(e)}. Starting from scratch.")
     source_record.write_text(fingerprint, encoding='utf-8')
 
-    # Get total items
     total_items = len(sub_file.events)
-
-    # If we've already translated everything, we're done
     if starting_index >= total_items:
         logger.warning(f"All {starting_index} lines are already translated.")
         return translated_lines
 
-    system_prompt: str = _set_sys_prompt(lang_from, lang_to)
-    models: list[str] = list(dict.fromkeys(m for m in (model, fallback_model) if m))
-    clients: dict[str, LLMProvider] = {}
-
+    llms: list[LLMProvider] = [llm] + ([fallback_llm] if fallback_llm else [])
+    ending_item = line_range.end + 1 if line_range else total_items
     start_time: float = time.perf_counter()
-
-    ending_item = total_items
-    if segment:
-        ending_item = max(segment) + 1
-
     i: int = starting_index
     processed_batches: int = 0
 
     try:
         while i < ending_item:
-            batch_end: int = min(i + batch_lines, ending_item)
+            batch_end: int = min(i + options.batch_lines, ending_item)
             continues_added: int = 0
             while batch_end < ending_item and \
-                sub_file.events[batch_end - 1].text.endswith(constants.CONTINUE_FLAG) and \
-                    continues_added < max_cont_lines:
+                    sub_file.events[batch_end - 1].text.endswith(constants.CONTINUE_FLAG) and \
+                    continues_added < options.max_cont_lines:
                 batch_end += 1
                 continues_added += 1
 
             batch_size: int = batch_end - i
-
-            # Prepare source text batch
-            lookahead: int = min(discard_lines, ending_item - batch_end)
+            lookahead: int = min(options.discard_lines, ending_item - batch_end)
             current_batch = sub_file.events[i:(batch_end + lookahead)]
             if not current_batch:
                 break
 
-            prompt: str = _set_translate_prompt(translated_lines, context_prompt, current_batch, lang_from, lang_to, context_lines)
+            prompt: str = translation_prompts.translate_prompt(
+                translated_lines, context_prompt, current_batch, lang_from, lang_to, options.context_lines)
 
-            # Progress Metrics
             processed_batches += 1
-            remaining_items_estimate: int = ending_item - i
-            total_batches: int = (remaining_items_estimate + batch_lines - 1) // batch_lines + processed_batches - 1
-
-            elapsed_time: float = time.perf_counter() - start_time
-            _print_progress(elapsed_time, processed_batches, total_batches, i, batch_end, ending_item, def_time_per_batch)
+            remaining: int = ending_item - i
+            total_batches: int = (remaining + options.batch_lines - 1) // options.batch_lines + processed_batches - 1
+            _print_progress(time.perf_counter() - start_time, processed_batches, total_batches, i, batch_end, ending_item)
 
             logger.debug(f"Prompting batch {processed_batches}/{total_batches} (Lines {i+1}-{batch_end})")
             new_lines: list[str] = _translate_batch(
-                prompt, current_batch, models, clients, system_prompt,
-                lang_from, lang_to, translate_retries, server_retries)
+                prompt, current_batch, llms, lang_from, lang_to, options.translate_retries)
 
-            # Exclude discarded lines
+            # The lookahead lines were only there for context.
             translated_lines.extend(new_lines[:batch_size])
             write_lines(translated_lines, output_file)
 
@@ -139,8 +110,7 @@ def translate(sub_file: SSAFile,
         logger.error(f"Unexpected error during translation: {str(e)}")
         raise
     finally:
-        duration: float = time.perf_counter() - start_time
-        duration_minutes, duration_seconds = divmod(int(duration), 60)
+        duration_minutes, duration_seconds = divmod(int(time.perf_counter() - start_time), 60)
         logger.debug(f"Translation ran for {duration_minutes} min {duration_seconds} s")
 
     if ending_translated_lines:
@@ -148,9 +118,41 @@ def translate(sub_file: SSAFile,
 
     return translated_lines
 
+
+def _translate_batch(prompt: str,
+                     current_batch: list[SSAEvent],
+                     llms: list[LLMProvider],
+                     lang_from: str,
+                     lang_to: str,
+                     translate_retries: int) -> list[str]:
+    """Gets a translation with the right line count, trying each model in turn."""
+    new_lines: list[str] = []
+
+    for llm in llms:
+        attempt_prompt: str = prompt
+        for attempt in range(translate_retries):
+            new_lines = translation_response.parse_response(llm.prompt(attempt_prompt))
+
+            if len(new_lines) == len(current_batch):
+                return new_lines
+
+            logger.warning(f"Translation attempt {attempt+1} with {llm.model} failed: expected {len(current_batch)} lines, got {len(new_lines)}.")
+            if abs(len(current_batch) - len(new_lines)) <= 10:
+                attempt_prompt = translation_prompts.retry_prompt(new_lines, current_batch, lang_from, lang_to)
+
+    logger.warning(f"No model returned the exact line count after {translate_retries} attempts each. Proceeding with best effort.")
+    return translation_response.force_line_count(new_lines, current_batch)
+
+
+def generate_context(subtitles: SSAFile, llm: LLMProvider, filename: str, lang_from: str, lang_to: str) -> str:
+    """Asks a web-grounded model for a summary and glossary to guide translation."""
+    return llm.prompt(translation_prompts.context_prompt(subtitles, filename, lang_from, lang_to), grounding=True)
+
+
 def _source_fingerprint(sub_file: SSAFile) -> str:
     """Identifies the source text a partial translation was made from."""
     return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
+
 
 def _partial_matches_source(source_record: Path, fingerprint: str) -> bool:
     """Decides whether an existing partial translation can be resumed."""
@@ -162,66 +164,6 @@ def _partial_matches_source(source_record: Path, fingerprint: str) -> bool:
         return False
     return True
 
-def _translate_batch(prompt: str,
-                     current_batch: list[SSAEvent],
-                     models: list[str],
-                     clients: dict[str, LLMProvider],
-                     system_prompt: str,
-                     lang_from: str,
-                     lang_to: str,
-                     translate_retries: int,
-                     server_retries: int) -> list[str]:
-    """Gets a translation with the right line count, trying each model in turn."""
-    new_lines: list[str] = []
-
-    for active_model in models:
-        if active_model not in clients:
-            clients[active_model] = AIToolFactory.get_llm_provider(model_name=active_model, system_prompt=system_prompt)
-
-        attempt_prompt: str = prompt
-        for attempt in range(translate_retries):
-            translated_text = _prompt_with_server_retries(clients[active_model], attempt_prompt, server_retries)
-            new_lines = _parse_response(translated_text)
-
-            if len(new_lines) == len(current_batch):
-                return new_lines
-
-            logger.warning(f"Translation attempt {attempt+1} with {active_model} failed: expected {len(current_batch)} lines, got {len(new_lines)}.")
-            if abs(len(current_batch) - len(new_lines)) <= 10:
-                attempt_prompt = _set_retry_prompt(new_lines, current_batch, lang_from, lang_to)
-
-    logger.warning(f"No model returned the exact line count after {translate_retries} attempts each. Proceeding with best effort.")
-    return _force_line_count(new_lines, current_batch)
-
-def _prompt_with_server_retries(client: LLMProvider, prompt: str, server_retries: int) -> str:
-    """Sends a prompt, retrying when the server is temporarily unavailable."""
-    for server_attempt in range(server_retries):
-        try:
-            return client.prompt(prompt)
-        except KeyboardInterrupt:
-            logger.warning("\nTranslation aborted by user. Saving partial results...")
-            raise
-        except ConnectionError:
-            if server_attempt < (server_retries - 1):
-                logger.warning(f"Connection Error (attempt {server_attempt+1}/{server_retries}). Retrying...")
-                time.sleep(min(5 * server_attempt, 65))
-            else:
-                logger.error(f"Connection Error (attempt {server_attempt+1}/{server_retries})")
-                raise
-        except Exception as e:
-            if server_attempt < (server_retries - 1) and ("503 UNAVAILABLE" in str(e) or "overloaded" in str(e)):
-                logger.warning(f"Server overloaded (attempt {server_attempt+1}/{server_retries}). Retrying...")
-                time.sleep(2)
-            else:
-                raise
-    return ""
-
-def _parse_response(translated_text: str) -> list[str]:
-    """Splits a model response into cleaned subtitle lines."""
-    new_lines = translated_text.strip().split('\n')
-    if _is_numbered(new_lines):
-        new_lines = _remove_numbering(new_lines)
-    return _clean_ellipses(new_lines)
 
 def load_context(file_path: Path) -> str:
     """Loads a context prompt from a text file.
@@ -242,59 +184,6 @@ def load_context(file_path: Path) -> str:
         logger.warning(f"Error reading context file: {str(e)}. Using empty context.")
         return ""
 
-def generate_context(subtitles: SSAFile, model: str, filename: str, lang_from: str, lang_to: str) -> str:
-    """Generates a context summary for a subtitle file using an LLM.
-
-    The summary includes content type, a brief synopsis, and a glossary.
-
-    Args:
-        subtitles: The SSAFile object containing source subtitles.
-        model: The LLM model to use for context generation.
-        filename: The original filename, used in the prompt.
-        lang_from: BCP 47 code for the source language.
-        lang_to: BCP 47 code for the target language.
-
-    Returns:
-        A string containing the generated context.
-    """
-    prompt: str = _set_context_prompt(subtitles, filename, lang_from, lang_to)
-    
-    llm_client: LLMProvider = AIToolFactory.get_llm_provider(model_name=model, 
-                                                             system_prompt="You must follow prompt instructions.")
-    try:
-        context: str = llm_client.prompt(prompt, grounding=True)
-    except KeyboardInterrupt:
-        logger.warning("\nTranslation aborted by user. Saving partial results...")
-        raise
-    except Exception as e:
-        raise
-    return context
-
-def text_to_subs(text_lines: list[str], 
-                    timed_events: list[SSAEvent], 
-                    prepended_subs: SSAFile) -> SSAFile:
-    """Converts a list of text strings into an SSAFile object.
-
-    Combines translated text lines with the timing and style information from
-    the original subtitle events.
-
-    Args:
-        text_lines: A list of translated subtitle text strings.
-        timed_events: A list of original SSAEvent objects for timing and style.
-        prepended_subs: An SSAFile to append the new events to.
-
-    Returns:
-        The SSAFile with the newly created and appended events.
-    """
-    for _, (item, text) in enumerate(zip(timed_events, text_lines)):
-        event = SSAEvent(
-            start=item.start,
-            end=item.end,
-            style=item.style,
-            text=text
-        )
-        prepended_subs.events.append(event)
-    return prepended_subs
 
 def write_lines(lines: list[str], output_file: Path) -> None:
     """Writes a list of strings to a text file, with each string on a new line.
@@ -310,136 +199,15 @@ def write_lines(lines: list[str], output_file: Path) -> None:
         logger.error(f"Error writing lines to file: {str(e)}")
     return
 
-def _set_sys_prompt(lang_from: str, lang_to: str) -> str:
-    """Creates the system prompt for the LLM translator role."""
-    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
-    return prompt
 
-def _set_translate_prompt(previous_translations: list[str], 
-                          context_prompt: str, 
-                          current_batch: list[SSAEvent], 
-                          lang_from: str, 
-                          lang_to: str,
-                          context_lines: int) -> str:
-    """Constructs the user prompt for translating a batch of subtitles."""
-    # Prepare translation context if available
-    context_section = ""
-    if previous_translations:
-        context_str = "\n".join(previous_translations[-context_lines:])
-        context_section = f"For continuity, here are the last {min(context_lines, len(previous_translations))} translated entries:\n{context_str}\n\n\nContinue directly from the last entry. "
-
-    batch_text: str = "\n".join([
-        f"{idx+1}. {item.text.replace('\\n', r'\\N')}"
-        for idx, item in enumerate(current_batch)
-    ])
-    
-    prompt: str = f"Context:\n{context_prompt}\n\n{context_section}Translate the following {len(current_batch)} {_get_lang_name(lang_from)} subtitle entries to {_get_lang_name(lang_to)}. Maintain exact entry count and order:\n\n{batch_text}"
-    return prompt
-
-def _set_retry_prompt(translated_lines: list[str], 
-                      orig_subevents: list[SSAEvent], 
-                      lang_from: str, 
-                      lang_to: str) -> str:
-    """Constructs a prompt to ask the LLM to correct a line count mismatch."""
-    translated_text: str = "\n".join([f"{idx+1}. {text}" for idx, text in enumerate(translated_lines)])
-
-    event_text: str = "\n".join([
-        f"{idx+1}. {item.text.replace('\\n', r'\\N')}"
-        for idx, item in enumerate(orig_subevents)
-    ])
-
-    prompt = f"""Translate exactly {len(orig_subevents)} {_get_lang_name(lang_from)} subtitle entries to {_get_lang_name(lang_to)}.\nYour previous translation had {len(translated_lines)} entries, but I need exactly {len(orig_subevents)} entries.\n\nOriginal {_get_lang_name(lang_from)} entries:\n{event_text}\n\nYour previous translation with incorrect entry count:\n{translated_text}\n\nPlease correct your translation to provide exactly {len(orig_subevents)} entries of {_get_lang_name(lang_to)} subtitles.\nMaintain the same content but adjust your output to match the required entry count."""
-    return prompt
-
-def _set_context_prompt(subtitles: SSAFile, filename: str, lang_from: str, lang_to: str) -> str:
-    """Constructs the prompt for generating a context summary from subtitles."""
-    sub_events: str = "\n".join(i.text for i in subtitles.events)
-
-    prompt: str = f"You are commissioning a translator and they have requested information in English. They will be provided with only the transcript attached. They will not be provided the source audio or video or other material. Make no reference to those. You are to: (1) State whether the transcript is high quality or if it was auto-generated with errors to inform the translator how strictly or liberally to follow the text, (2) State what the content is in 1 sentence, (3) Summarize the contents in 4 sentences, and (4) Under the header 'Glossary', provide a comprehensive simple mapping of jargon, names and titles from {_get_lang_name(lang_from)} to {_get_lang_name(lang_to)} for the translator to keep consistent, noting mis-spellings if any.\nGlossary Format:\n'Correct {_get_lang_name(lang_from)}: {_get_lang_name(lang_to)} (Mis-spellings: Mis-spelled {_get_lang_name(lang_from)})')\nみりにゃ: Mirinya, nickname of Otani Emiri (Mis-spelled: みーにゃん)\n\nRespond in text format with no special formatting or numbering. Provide only the information requested. Be concise. Japanese names should be lastname-firstname order. Search the internet to ensure accuracy of the glossary.\n\nTranscript of Video: {filename}\n{sub_events}"
-
-    return prompt
-
-def _print_progress(elapsed_time: float, 
-                    current_batch: int, 
-                    total_batches: int, 
-                    start_item: int, 
-                    end_item: int, 
-                    total_item: int,
-                    def_time_per_batch: float = 40) -> None:
-    """Calculates and prints translation progress and estimated time remaining."""
-    
-    # Time Calculations
-    time_per_batch: float = (def_time_per_batch * 4 + elapsed_time) / (4 + current_batch - 1)
+def _print_progress(elapsed_time: float,
+                    current_batch: int,
+                    total_batches: int,
+                    start_item: int,
+                    end_item: int,
+                    total_item: int) -> None:
+    """Prints translation progress and estimated time remaining."""
+    time_per_batch: float = (ESTIMATED_SECONDS_PER_BATCH * 4 + elapsed_time) / (4 + current_batch - 1)
     remaining_time: float = time_per_batch * (total_batches - current_batch + 1)
-
-    # Display progress
     remaining_minutes, remaining_seconds = divmod(int(remaining_time), 60)
     print(f"Translating batch {current_batch}/{total_batches} ({start_item+1}-{end_item}/{total_item} items) - ETC: {remaining_minutes}m {remaining_seconds}s")
-    return
-
-def _is_numbered(lines: list[str]) -> bool:
-    """Checks if a list of strings is formatted as a numbered list."""
-    # Need at least 2 lines to confirm a pattern
-    if len(lines) < 2:
-        return False
-        
-    numbered_count = 0
-    for i, line in enumerate(lines[:2]):
-        if '.' in line:
-            prefix, _, rest = line.partition('.')
-            if prefix.strip().isdigit() and rest.startswith(' '):
-                if int(prefix.strip()) == i+1:
-                    numbered_count += 1
-                    
-    # Only consider it numbered if both first two lines have numbers
-    return numbered_count == 2
-
-def _remove_numbering(lines: list[str]) -> list[str]:
-    """Removes leading 'N. ' numbering from a list of strings."""
-    stripped_lines: list[str] = []
-    for line in lines:
-        if '.' in line:
-            prefix, _, rest = line.partition('.')
-            if prefix.strip().isdigit() and rest.startswith(' '):
-                line = rest.strip()
-        stripped_lines.append(line)
-    return stripped_lines
-
-def _clean_ellipses(lines: list[str]) -> list[str]:
-    """Removes redundant ellipses at the start/end of adjacent lines."""
-    modified_lines = list(lines)
-
-    for i in range(len(modified_lines) - 1):
-        current_line = modified_lines[i]
-        next_line = modified_lines[i+1]
-        if current_line.endswith("...") and next_line.startswith("..."):
-            modified_lines[i] = current_line[:-3]
-            modified_lines[i+1] = next_line[3:]
-        if modified_lines[i].startswith("..."):
-            modified_lines[i] = modified_lines[i][3:]
-        if next_line.startswith("..."):
-            modified_lines[i+1] = next_line[3:]
-
-    return modified_lines
-
-
-def _force_line_count(translated_lines: list[str], 
-                    target_lines: list[SSAEvent]) -> list[str]:
-    """Forces the translated line count to match the target count as a last resort."""
-    if len(translated_lines) > len(target_lines):
-        # Combine excess lines
-        translated_lines = translated_lines[:len(target_lines)-1] + \
-            ["\\N".join(translated_lines[len(target_lines)-1:])]
-    elif len(translated_lines) < len(target_lines):
-        # Add placeholder lines
-        translated_lines = translated_lines + ["[Translation missing]" for _ in range(len(target_lines) - len(translated_lines))]
-    return translated_lines
-
-def _get_lang_name(bcp47_code: str) -> str:
-  """Gets the English display name for a BCP 47 language code."""
-  try:
-    lang = langcodes.Language.get(bcp47_code)
-    return lang.display_name('en')
-  except (LookupError, LanguageTagError):
-    logger.warning(f"Language code {bcp47_code} could not be parsed.")
-    return bcp47_code

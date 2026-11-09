@@ -34,6 +34,8 @@ def translate_all(prompt: str) -> str:
 
 
 class FakeLLM:
+    model = "fake-model"
+
     def __init__(self, responder: Callable[[str], str]):
         self.responder = responder
         self.calls: list[str] = []
@@ -50,7 +52,7 @@ def fake_llms(monkeypatch):
     """Routes AIToolFactory to FakeLLMs. Set entries by model name before use."""
     llms: dict[str, FakeLLM] = {}
 
-    def get_llm_provider(model_name: str, system_prompt: str = ""):
+    def get_llm_provider(model_name: str, system_prompt: str = "", **options):
         return llms[model_name]
 
     monkeypatch.setattr(AIToolFactory, "get_llm_provider", staticmethod(get_llm_provider))
