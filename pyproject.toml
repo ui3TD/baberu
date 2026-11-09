@@ -13,13 +13,16 @@ requires-python = ">=3.12"
 
 dependencies = [
     "ffmpeg-python>=0.2.0",
-    "langcodes>=3.5.0",
+    "langcodes[data]>=3.5.0",
     "platformdirs>=4.2.0", 
     "pysubs2>=1.8.0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",
     "yt_dlp>=2025.6.30"
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.scripts]
 baberu = "baberu.__main__:main"
