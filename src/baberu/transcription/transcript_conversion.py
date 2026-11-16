@@ -18,6 +18,7 @@ from baberu.subtitling.types import SubtitleLine
 from baberu.tools.file_utils import atomic_write_text
 from baberu.transcription.health import count_repair, letters
 from baberu.transcription.normalize import normalize
+from baberu.transcription.repair import repair
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
     each time so converting again neither costs money nor changes the lines.
     """
     get_splitter = _split_asker(parsing, split_cache)
-    transcript = normalize(transcript, limits)
+    transcript = repair(normalize(transcript, limits), limits or AnomalySettings())
     all_lines: list[SubtitleLine] = []
 
     for segment in transcript.segments:

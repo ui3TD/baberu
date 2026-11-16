@@ -12,6 +12,10 @@ class TranscriptionSettings(BaseModel):
     # Configs written before other services were supported call this elevenlabs_model.
     model: str = Field(default="whisper-1", validation_alias=AliasChoices("model", "elevenlabs_model"))
     default_lang_from: str = "ja"
+    # The second pass can use a different model. Empty means the same as `model`.
+    retranscribe_model: str = ""
+    # Which anomalies send audio to be transcribed again (paid).
+    retranscribe_kinds: list[str] = ["smear", "collapse", "loop"]
 
 
 class ParsingSettings(BaseModel):
@@ -51,6 +55,7 @@ class AnomalySettings(BaseModel):
     smear_min_sec: float = 3.0
     collapse_sec_per_letter: float = 0.02
     collapse_min_tokens: int = 4
+    max_letters_per_sec: float = 25.0
     median_multiple: float = 10.0
     loop_min_repeats: int = 5
     loop_max_tokens: int = 6

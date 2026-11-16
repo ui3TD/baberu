@@ -8,11 +8,12 @@ from pysubs2 import SSAFile
 from baberu.providers.factory import AIToolFactory
 
 from baberu.job import Job
-from baberu.settings import MistimedSegmentSettings, ParsingSettings
+from baberu.settings import AnomalySettings, MistimedSegmentSettings, ParsingSettings
 from baberu.subtitling import sub_utils, sub_correction
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
-from baberu.transcription import health, transcript_conversion, transcript_chunked
+from baberu.transcription import health, repair, transcript_conversion, transcript_chunked
+from baberu.transcription.health import Anomaly
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,38 @@ def find_segments(subtitles: SSAFile,
 
     return ranges
 
+def anomaly_ranges(subtitles: SSAFile, anomalies: list[Anomaly]) -> list[LineRange]:
+    """The lines around each anomaly's time. An anomaly between lines takes the line on each side."""
+    events = subtitles.events
+    ranges = []
+    for anomaly in anomalies:
+        start_ms, end_ms = anomaly.start * 1000, anomaly.end * 1000
+        lines = [i for i, event in enumerate(events) if event.start <= end_ms and event.end >= start_ms]
+        if not lines:
+            before = [i for i, event in enumerate(events) if event.end <= start_ms]
+            after = [i for i, event in enumerate(events) if event.start >= end_ms]
+            lines = before[-1:] + after[:1]
+        if lines:
+            ranges.append(LineRange(min(lines), max(lines)))
+    return ranges
+
+
+def merge_ranges(ranges: list[LineRange]) -> list[LineRange]:
+    """Joins ranges that overlap or touch, so no line is transcribed twice."""
+    merged: list[LineRange] = []
+    for line_range in sorted(ranges, key=lambda r: r.start):
+        if merged and line_range.start <= merged[-1].end + 1:
+            merged[-1] = LineRange(merged[-1].start, max(merged[-1].end, line_range.end))
+        else:
+            merged.append(line_range)
+    return merged
+
+
+def _problems(events, anomalies: list[Anomaly], short_line_sec: float) -> int:
+    """How much is wrong in a stretch of subtitles: anomalies plus lines too short to read."""
+    return len(anomalies) + sum(1 for e in events if (e.end - e.start) / 1000 <= short_line_sec)
+
+
 def transcribe_segments(subtitles: SSAFile,
                         ranges: list[LineRange],
                         audio_file: Path,
@@ -39,11 +72,22 @@ def transcribe_segments(subtitles: SSAFile,
                         lang: str,
                         parsing: ParsingSettings,
                         transcription_model: str,
-                        split_cache: dict[str, str] | None = None) -> SSAFile:
-    """Re-transcribes the audio behind each range and replaces those subtitles."""
+                        split_cache: dict[str, str] | None = None,
+                        limits: AnomalySettings | None = None,
+                        kinds: tuple[str, ...] = (),
+                        anomalies: list[Anomaly] | None = None,
+                        short_line_sec: float = 0.1,
+                        always_accept: bool = False) -> SSAFile:
+    """Re-transcribes the audio behind each range, and keeps the result only if it is better.
+
+    Better means not empty, and fewer problems than the lines it replaces:
+    first-pass `anomalies` of the given `kinds` in that time, plus short lines.
+    `always_accept` skips the comparison, for a range the user chose.
+    """
     if not ranges:
         return subtitles
 
+    limits = limits or AnomalySettings()
     transcript_provider = None
 
     # Work backwards so replacing one range doesn't move the ones still to do.
@@ -55,42 +99,57 @@ def transcribe_segments(subtitles: SSAFile,
 
         if output_file.exists():
             transcript = transcript_conversion.load_transcript_json(output_file)
-            new_subtitles = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache)
-            new_subtitles.shift(ms=start_time_ms)
-            subtitles = sub_utils.splice(subtitles, line_range, new_subtitles)
-            continue
+        else:
+            if transcript_provider is None:
+                transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+            transcript = _transcribe_audio(audio_file, start_time_ms, end_time_ms, transcript_provider, lang, output_file)
+            if transcript is None:
+                continue
 
-        if transcript_provider is None:
-            transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+        new_subtitles = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache, limits)
+        new_subtitles.shift(ms=start_time_ms)
 
-        start_time_sec = start_time_ms / 1000.0
-        duration_sec = (end_time_ms - start_time_ms) / 1000.0
+        old_anomalies = [a for a in anomalies or [] if a.kind in kinds
+                         and a.start * 1000 <= end_time_ms and a.end * 1000 >= start_time_ms]
+        new_anomalies = [a for a in repair.unresolved(transcript, limits) if a.kind in kinds]
+        old = _problems(subtitles.events[line_range.start:line_range.end + 1], old_anomalies, short_line_sec)
+        new = _problems(new_subtitles.events, new_anomalies, short_line_sec)
+        where = f"lines {line_range.start + 1}-{line_range.end + 1}"
 
-        with tempfile.NamedTemporaryFile(suffix='.oga', delete=False) as temp_audio:
-            temp_audio_path: Path = Path(temp_audio.name)
-
-        try:
-            av_utils.cut_audio(audio_file, start_time_sec, duration_sec, temp_audio_path)
-        except Exception as e:
-            logger.error(f"Failed to cut audio for segment starting at {start_time_ms}ms: {e}")
-            temp_audio_path.unlink(missing_ok=True)
-            continue
-
-        try:
-            transcript, json_data = transcript_chunked.transcribe_file(temp_audio_path, transcript_provider, lang)
-            transcript_conversion.write_transcript_json(json_data, output_file)
-            new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache)
-            new_subtitles.shift(ms=start_time_ms)
+        if new_subtitles.events and (always_accept or new < old):
             subtitles = sub_utils.splice(subtitles, line_range, new_subtitles)
             health.count_repair("segments_retranscribed")
-        except Exception as e:
-            logger.error(f"Error during transcription for segment starting at {start_time_ms}ms: {e}")
-            raise
-        finally:
-            temp_audio_path.unlink(missing_ok=True)
+            logger.info(f"retranscribe: {where} replaced ({old} problems before, {new} after)")
+        else:
+            health.count_repair("segments_rejected")
+            reason = "nothing came back" if not new_subtitles.events else f"{new} problems, not fewer than {old}"
+            logger.info(f"retranscribe: kept {where} as they were: {reason}")
 
     logger.debug(f"Processed {len(ranges)} segments using two-pass transcription")
     return subtitles
+
+
+def _transcribe_audio(audio_file: Path, start_ms: int, end_ms: int, provider, lang: str, output_file: Path):
+    """Transcribes one stretch of audio and saves the raw response. Returns None if the audio can't be cut."""
+    with tempfile.NamedTemporaryFile(suffix='.oga', delete=False) as temp_audio:
+        temp_audio_path: Path = Path(temp_audio.name)
+
+    try:
+        av_utils.cut_audio(audio_file, start_ms / 1000.0, (end_ms - start_ms) / 1000.0, temp_audio_path)
+    except Exception as e:
+        logger.error(f"Failed to cut audio for segment starting at {start_ms}ms: {e}")
+        temp_audio_path.unlink(missing_ok=True)
+        return None
+
+    try:
+        transcript, json_data = transcript_chunked.transcribe_file(temp_audio_path, provider, lang)
+        transcript_conversion.write_transcript_json(json_data, output_file)
+        return transcript
+    except Exception as e:
+        logger.error(f"Error during transcription for segment starting at {start_ms}ms: {e}")
+        raise
+    finally:
+        temp_audio_path.unlink(missing_ok=True)
 
 def pad_segments(subtitles: SSAFile, ranges: list[LineRange]) -> list[LineRange]:
     """Widens each range by one line on both sides, as a buffer for cutting audio."""

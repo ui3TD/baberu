@@ -22,7 +22,7 @@ from baberu.subtitling import sub_correction, sub_translation, sub_utils, transl
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
 from baberu.tools.file_utils import FileKind, atomic_path, atomic_write_text, file_hash, kind_of
-from baberu.transcription import health, transcript_chunked, transcript_conversion, transcript_segmented
+from baberu.transcription import health, repair, transcript_chunked, transcript_conversion, transcript_segmented
 
 if TYPE_CHECKING:
     from baberu.cli import RunRequest
@@ -228,8 +228,10 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
 def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None:
     """Building a provider needs its key but makes no request."""
     try:
-        if plan.action("transcribe") == RUN or plan.action("retranscribe") == RUN:
+        if plan.action("transcribe") == RUN:
             AIToolFactory.get_transcription_provider(settings.transcription.model)
+        if plan.action("retranscribe") == RUN:
+            AIToolFactory.get_transcription_provider(_retranscribe_model(settings))
         if plan.action("translate") == RUN:
             AIToolFactory.get_llm_provider(request.model)
         if plan.action("context") == RUN:
@@ -344,11 +346,15 @@ def _convert(transcript, job: Job, action: str, settings: Settings) -> SSAFile:
         return sub_utils.load(output)
 
     splits = job.load_splits()
-    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, settings.parsing, splits)
+    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, settings.parsing, splits, settings.anomalies)
     job.save_splits(splits)
     sub_utils.write(sub_data, output)
     logger.info(f"convert: {len(sub_data.events)} lines")
     return sub_data
+
+
+def _retranscribe_model(settings: Settings) -> str:
+    return settings.transcription.retranscribe_model or settings.transcription.model
 
 
 def _twopass(sub_data: SSAFile,
@@ -357,38 +363,50 @@ def _twopass(sub_data: SSAFile,
              action: str,
              lang: str,
              line_range: LineRange | None,
-             settings: Settings) -> tuple[SSAFile, LineRange | None]:
-    """Re-transcribes poorly transcribed segments."""
+             settings: Settings,
+             transcript=None) -> tuple[SSAFile, LineRange | None]:
+    """Re-transcribes poorly transcribed segments.
+
+    Candidates come from the transcript's anomalies, when the subtitles were
+    made from it in this run, and from runs of very short lines.
+    """
     output = job.path(Stage.TWOPASS)
     source = sub_utils.fingerprint(sub_data)
     initial_lines = len(sub_data.events)
+    model = _retranscribe_model(settings)
 
     if action == REUSE:
-        _guard_paid_work(job, output, source, settings.transcription.model, "retranscribe")
+        _guard_paid_work(job, output, source, model, "retranscribe")
         _announce_reuse("retranscribe", output)
         sub_data = sub_utils.load(output)
         return sub_data, _shift(line_range, initial_lines, sub_data)
 
     segs = settings.mistimed_segs
+    kinds = tuple(settings.transcription.retranscribe_kinds)
+    anomalies = repair.unresolved(transcript, settings.anomalies) if transcript is not None else []
     if line_range:
         ranges = [line_range]
     else:
-        ranges = transcript_segmented.find_segments(sub_data, segs.mistimed_seg_thresh_sec, segs)
-        ranges = transcript_segmented.pad_segments(sub_data, ranges) if ranges else []
+        by_lines = transcript_segmented.find_segments(sub_data, segs.mistimed_seg_thresh_sec, segs)
+        by_anomaly = transcript_segmented.anomaly_ranges(sub_data, [a for a in anomalies if a.kind in kinds])
+        ranges = transcript_segmented.merge_ranges(by_lines + by_anomaly)
+        ranges = transcript_segmented.merge_ranges(transcript_segmented.pad_segments(sub_data, ranges))
 
     if ranges:
-        logger.info(f"retranscribe: transcribing {len(ranges)} segment(s) again...")
+        logger.info(f"retranscribe: transcribing {len(ranges)} segment(s) again with {model}...")
         splits = job.load_splits()
         sub_data = transcript_segmented.transcribe_segments(
             subtitles=sub_data, ranges=ranges, audio_file=audio_file, job=job, lang=lang,
-            parsing=settings.parsing, transcription_model=settings.transcription.model, split_cache=splits)
+            parsing=settings.parsing, transcription_model=model, split_cache=splits,
+            limits=settings.anomalies, kinds=kinds, anomalies=anomalies,
+            short_line_sec=segs.mistimed_seg_thresh_sec, always_accept=bool(line_range))
         job.save_splits(splits)
         sub_data = sub_correction.remove_empty(sub_data)
     else:
         logger.info("retranscribe: no badly timed segments found")
 
     sub_utils.write(sub_data, output)
-    job.record_origin(output, source, settings.transcription.model)
+    job.record_origin(output, source, model)
     job.save()
     return sub_data, _shift(line_range, initial_lines, sub_data)
 
@@ -651,7 +669,8 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
         sub_data = sub_utils.load(request.sub_file)
 
     if plan.action("retranscribe"):
-        sub_data, line_range = _twopass(sub_data, audio, job, plan.action("retranscribe"), request.lang_from, line_range, settings)
+        sub_data, line_range = _twopass(sub_data, audio, job, plan.action("retranscribe"), request.lang_from, line_range,
+                                        settings, transcript if not request.sub_file else None)
     if plan.action("fix"):
         sub_data, line_range = _fix(sub_data, job, line_range, settings)
     if plan.action("translate"):

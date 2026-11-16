@@ -9,6 +9,8 @@ logging:
 transcription:
   elevenlabs_model: "whisper-1"
   default_lang_from: "ja"
+  retranscribe_model: ""                           # empty: the same model as above
+  retranscribe_kinds: ["smear", "collapse", "loop"] # anomalies sent to be transcribed again (paid)
 
 parsing:
   delimiters: ["。","？","！","-","?","!","」","「"]
@@ -44,6 +46,7 @@ anomalies:
   smear_min_sec: 3.0             # ...and at least this long
   collapse_sec_per_letter: 0.02  # squeezed shorter than this per letter...
   collapse_min_tokens: 4         # ...for at least this many words in a row
+  max_letters_per_sec: 25.0      # spreading out a collapse may not be faster than this
   median_multiple: 10.0
   loop_min_repeats: 5
   loop_max_tokens: 6
