@@ -9,49 +9,76 @@ from baberu import constants
 
 logger = logging.getLogger(__name__)
 
+RETRY_MARKER = "Translate only these entries, keeping their numbers:\n\n"
+
 
 def system_prompt(lang_from: str, lang_to: str) -> str:
     """Creates the system prompt for the LLM translator role."""
-    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
+    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, each with its number, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
     return prompt
 
 
-def translate_prompt(previous_translations: list[str], 
-                          context_prompt: str, 
-                          current_batch: list[SSAEvent], 
-                          lang_from: str, 
+def translate_prompt(previous_translations: list[str],
+                     context_prompt: str,
+                     current_batch: list[SSAEvent],
+                     lang_from: str,
+                     lang_to: str,
+                     context_lines: int) -> str:
+    """Constructs the user prompt for translating a batch of subtitles.
+
+    `previous_translations` are earlier lines of this translation, never source lines.
+    """
+    return (f"{_preamble(previous_translations, context_prompt, context_lines)}"
+            f"Translate the following {len(current_batch)} {_get_lang_name(lang_from)} subtitle entries to "
+            f"{_get_lang_name(lang_to)}. Keep each entry's number. Maintain exact entry count and order:\n\n"
+            f"{_entries(current_batch)}")
+
+
+def targeted_retry_prompt(previous_translations: list[str],
+                          context_prompt: str,
+                          current_batch: list[SSAEvent],
+                          accepted: dict[int, str],
+                          needed: dict[int, str],
+                          lang_from: str,
                           lang_to: str,
                           context_lines: int) -> str:
-    """Constructs the user prompt for translating a batch of subtitles."""
-    # Prepare translation context if available
-    context_section = ""
-    if previous_translations:
-        context_str = "\n".join(previous_translations[-context_lines:])
-        context_section = f"For continuity, here are the last {min(context_lines, len(previous_translations))} translated entries:\n{context_str}\n\n\nContinue directly from the last entry. "
+    """Asks again for only the entries that came back wrong. Keys are indexes in the batch.
 
-    batch_text: str = "\n".join([
-        f"{idx+1}. {item.text.replace('\\n', r'\\N')}"
-        for idx, item in enumerate(current_batch)
-    ])
-    
-    prompt: str = f"Context:\n{context_prompt}\n\n{context_section}Translate the following {len(current_batch)} {_get_lang_name(lang_from)} subtitle entries to {_get_lang_name(lang_to)}. Maintain exact entry count and order:\n\n{batch_text}"
-    return prompt
+    The whole batch and the translations already accepted are included, so the
+    retried entries fit the lines around them.
+    """
+    source_name, target_name = _get_lang_name(lang_from), _get_lang_name(lang_to)
+    accepted_text = "\n".join(f"{i + 1}. {accepted[i]}" for i in sorted(accepted)) or "(none)"
+    reasons = "; ".join(f"entry {i + 1} was {reason}" for i, reason in sorted(needed.items()))
+    wanted = sorted(needed)
+    return (f"{_preamble(previous_translations, context_prompt, context_lines)}"
+            f"These are {len(current_batch)} {source_name} subtitle entries:\n\n"
+            f"{_entries(current_batch)}\n\n"
+            f"Their {target_name} translations so far:\n\n{accepted_text}\n\n"
+            f"Some entries are still needed ({reasons}). Translate each of them to {target_name} "
+            f"so it fits the entries around it. Return one line per entry and nothing else. "
+            f"{RETRY_MARKER}"
+            f"{_entries([current_batch[i] for i in wanted], [i + 1 for i in wanted])}")
 
 
-def retry_prompt(translated_lines: list[str], 
-                      orig_subevents: list[SSAEvent], 
-                      lang_from: str, 
-                      lang_to: str) -> str:
-    """Constructs a prompt to ask the LLM to correct a line count mismatch."""
-    translated_text: str = "\n".join([f"{idx+1}. {text}" for idx, text in enumerate(translated_lines)])
+def _preamble(previous_translations: list[str], context_prompt: str, context_lines: int) -> str:
+    section = f"Context:\n{context_prompt}\n\n"
+    recent = previous_translations[-context_lines:] if context_lines > 0 else []
+    if recent:
+        section += (f"For continuity, here are the last {len(recent)} translated entries:\n"
+                    + "\n".join(recent) + "\n\n\nContinue directly from the last entry. ")
+    return section
 
-    event_text: str = "\n".join([
-        f"{idx+1}. {item.text.replace('\\n', r'\\N')}"
-        for idx, item in enumerate(orig_subevents)
-    ])
 
-    prompt = f"""Translate exactly {len(orig_subevents)} {_get_lang_name(lang_from)} subtitle entries to {_get_lang_name(lang_to)}.\nYour previous translation had {len(translated_lines)} entries, but I need exactly {len(orig_subevents)} entries.\n\nOriginal {_get_lang_name(lang_from)} entries:\n{event_text}\n\nYour previous translation with incorrect entry count:\n{translated_text}\n\nPlease correct your translation to provide exactly {len(orig_subevents)} entries of {_get_lang_name(lang_to)} subtitles.\nMaintain the same content but adjust your output to match the required entry count."""
-    return prompt
+def _entries(events: list[SSAEvent], numbers: list[int] | None = None) -> str:
+    """Numbers subtitle entries for a prompt, one per line."""
+    numbers = numbers or list(range(1, len(events) + 1))
+    return "\n".join(f"{number}. {_one_line(event.text)}" for number, event in zip(numbers, events))
+
+
+def _one_line(text: str) -> str:
+    """Sends every line break, real or ASS soft '\\n', as the ASS hard break '\\N'."""
+    return text.replace("\r\n", "\n").replace("\n", "\\N").replace("\\n", "\\N")
 
 
 def context_prompt(subtitles: SSAFile, filename: str, lang_from: str, lang_to: str) -> str:

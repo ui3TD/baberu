@@ -1,71 +1,93 @@
-"""Cleans up what the translation model sends back. Everything here is a pure function."""
+"""Cleans up and checks what the translation model sends back. Everything here is a pure function."""
+import re
+
 from pysubs2 import SSAEvent
 
+from baberu import constants
 
-def parse_response(translated_text: str) -> list[str]:
-    """Splits a model response into cleaned subtitle lines."""
-    new_lines = translated_text.strip().split('\n')
-    if _is_numbered(new_lines):
-        new_lines = _remove_numbering(new_lines)
-    return _clean_ellipses(new_lines)
+MISSING = "missing"
+EMPTY = "empty"
+UNTRANSLATED = "untranslated"
 
-
-def force_line_count(translated_lines: list[str], 
-                    target_lines: list[SSAEvent]) -> list[str]:
-    """Forces the translated line count to match the target count as a last resort."""
-    if len(translated_lines) > len(target_lines):
-        # Combine excess lines
-        translated_lines = translated_lines[:len(target_lines)-1] + \
-            ["\\N".join(translated_lines[len(target_lines)-1:])]
-    elif len(translated_lines) < len(target_lines):
-        # Add placeholder lines
-        translated_lines = translated_lines + ["[Translation missing]" for _ in range(len(target_lines) - len(translated_lines))]
-    return translated_lines
+_THINKING = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
+# "12. text", "12) text" or "12: text". The separator must be followed by a space,
+# so a line starting "1.5 million" is not read as entry 1.
+_ENTRY = re.compile(r"^\s*(\d+)\s*[.):](?:\s+|$)(.*)$")
 
 
-def _is_numbered(lines: list[str]) -> bool:
-    """Checks if a list of strings is formatted as a numbered list."""
-    # Need at least 2 lines to confirm a pattern
-    if len(lines) < 2:
-        return False
-        
-    numbered_count = 0
-    for i, line in enumerate(lines[:2]):
-        if '.' in line:
-            prefix, _, rest = line.partition('.')
-            if prefix.strip().isdigit() and rest.startswith(' '):
-                if int(prefix.strip()) == i+1:
-                    numbered_count += 1
-                    
-    # Only consider it numbered if both first two lines have numbers
-    return numbered_count == 2
+def parse_response(text: str, expected: int) -> list[str | None]:
+    """Places each numbered entry of a response at its number.
 
+    Code fences, thinking blocks and blank lines are dropped. A number that is
+    missing is None, and a repeated number keeps its first entry. Unnumbered
+    text before the first entry is a preamble and is dropped; unnumbered text
+    after an entry is a second line of it. A response with no numbers at all is
+    read by position, but only if it has exactly `expected` lines.
+    """
+    lines = [line for line in _THINKING.sub("", text).splitlines()
+             if line.strip() and not line.strip().startswith("```")]
 
-def _remove_numbering(lines: list[str]) -> list[str]:
-    """Removes leading 'N. ' numbering from a list of strings."""
-    stripped_lines: list[str] = []
+    entries: list[str | None] = [None] * expected
+    current: int | None = None
+    numbered = False
     for line in lines:
-        if '.' in line:
-            prefix, _, rest = line.partition('.')
-            if prefix.strip().isdigit() and rest.startswith(' '):
-                line = rest.strip()
-        stripped_lines.append(line)
-    return stripped_lines
+        match = _ENTRY.match(line)
+        if match:
+            numbered = True
+            number = int(match.group(1))
+            if 1 <= number <= expected and entries[number - 1] is None:
+                current = number - 1
+                entries[current] = match.group(2)
+            else:
+                current = None  # Out of range or repeated: ignore it and anything that follows it.
+        elif current is not None:
+            entries[current] = f"{entries[current]}\\N{line.strip()}"
+
+    if not numbered:
+        entries = list(lines) if len(lines) == expected else [None] * expected
+
+    return _clean_ellipses([_clean(entry) for entry in entries])
 
 
-def _clean_ellipses(lines: list[str]) -> list[str]:
-    """Removes redundant ellipses at the start/end of adjacent lines."""
-    modified_lines = list(lines)
+def _clean(entry: str | None) -> str | None:
+    if entry is None:
+        return None
+    return entry.replace(constants.CONTINUE_FLAG, "").strip()
 
-    for i in range(len(modified_lines) - 1):
-        current_line = modified_lines[i]
-        next_line = modified_lines[i+1]
-        if current_line.endswith("...") and next_line.startswith("..."):
-            modified_lines[i] = current_line[:-3]
-            modified_lines[i+1] = next_line[3:]
-        if modified_lines[i].startswith("..."):
-            modified_lines[i] = modified_lines[i][3:]
-        if next_line.startswith("..."):
-            modified_lines[i+1] = next_line[3:]
 
-    return modified_lines
+def _clean_ellipses(lines: list[str | None]) -> list[str | None]:
+    """Removes the ellipses that mark one sentence running across two lines.
+
+    Only a leading '...' that follows a line ending in '...' is redundant; any
+    other ellipsis is part of the translation.
+    """
+    cleaned = list(lines)
+    for i in range(1, len(cleaned)):
+        before, current = cleaned[i - 1], cleaned[i]
+        if before is None or current is None:
+            continue
+        if before.endswith("...") and current.startswith("...") and before != "..." and current != "...":
+            cleaned[i - 1] = before[:-3].rstrip()
+            cleaned[i] = current[3:].lstrip()
+    return cleaned
+
+
+def problems(lines: list[str | None],
+             batch: list[SSAEvent],
+             kept: int,
+             same_language: bool = False) -> dict[int, str]:
+    """Finds the kept lines that need another try, by their index in the batch.
+
+    Only the first `kept` lines count; the lookahead after them is context.
+    """
+    found: dict[int, str] = {}
+    for i in range(min(kept, len(batch))):
+        line = lines[i] if i < len(lines) else None
+        source = _clean(batch[i].text) or ""
+        if line is None:
+            found[i] = MISSING
+        elif not line and source:
+            found[i] = EMPTY
+        elif not same_language and line == source and any(c.isalpha() for c in source):
+            found[i] = UNTRANSLATED
+    return found

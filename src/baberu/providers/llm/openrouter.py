@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from .base import LLMProvider
+from .base import Completion, LLMProvider, responses_completion
 
 
 class OpenRouterProvider(LLMProvider):
@@ -10,7 +10,7 @@ class OpenRouterProvider(LLMProvider):
         super().__init__(api_key, model, system_prompt, max_retries)
         self.client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1", max_retries=0)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -23,4 +23,4 @@ class OpenRouterProvider(LLMProvider):
             input=messages,
             extra_body={"reasoning": {"effort": "xhigh"}},
         )
-        return completion.output_text
+        return responses_completion(completion)

@@ -9,11 +9,13 @@ import yaml
 from pysubs2 import SSAEvent, SSAFile
 
 from baberu.providers.factory import AIToolFactory
+from baberu.providers.llm.base import Completion
 from baberu.providers.transcription.base import TranscriptionProvider
 from baberu.providers.transcription.openai import WhisperProvider
 
 BATCH_MARKER = "Maintain exact entry count and order:\n\n"
-ENTRY = re.compile(r"^\d+\. (.*)$")
+RETRY_MARKER = "Translate only these entries, keeping their numbers:\n\n"
+ENTRY = re.compile(r"^(\d+)\. (.*)$")
 
 
 def make_subs(rows: list[tuple[int, int, str]]) -> SSAFile:
@@ -27,29 +29,51 @@ def numbered_subs(count: int) -> SSAFile:
     return make_subs([(i * 2000, i * 2000 + 1500, f"line{i}") for i in range(count)])
 
 
+def numbered_entries(prompt: str) -> list[tuple[int, str]]:
+    """Pulls the requested (number, source text) entries out of a translation or retry prompt."""
+    body = prompt.split(RETRY_MARKER if RETRY_MARKER in prompt else BATCH_MARKER)[-1]
+    return [(int(m.group(1)), m.group(2)) for m in map(ENTRY.match, body.split("\n")) if m]
+
+
 def batch_entries(prompt: str) -> list[str]:
-    """Pulls the source entries out of a translation prompt."""
-    body = prompt.split(BATCH_MARKER)[-1]
-    return [ENTRY.match(line).group(1) for line in body.split("\n") if ENTRY.match(line)]
+    """Pulls the requested source entries out of a translation prompt."""
+    return [text for _, text in numbered_entries(prompt)]
+
+
+def is_retry(prompt: str) -> bool:
+    return RETRY_MARKER in prompt
 
 
 def translate_all(prompt: str) -> str:
-    """A well-behaved translator: one 'T:' line per source entry."""
-    return "\n".join(f"T:{entry}" for entry in batch_entries(prompt))
+    """A well-behaved translator: one numbered 'T:' line per requested entry."""
+    return "\n".join(f"{n}. T:{text}" for n, text in numbered_entries(prompt))
+
+
+def translate_or_describe(prompt: str) -> str:
+    """Translates a batch, or answers a context request with some notes."""
+    return translate_all(prompt) if numbered_entries(prompt) else "Generated notes."
 
 
 class FakeLLM:
-    model = "fake-model"
+    """Answers with what `responder` returns: text, a Completion, or an exception to raise."""
+    supports_grounding = True
 
-    def __init__(self, responder: Callable[[str], str]):
+    def __init__(self, responder: Callable[[str], "str | Completion | Exception"], model: str = "fake-model"):
         self.responder = responder
+        self.model = model
         self.calls: list[str] = []
         self.kwargs: list[dict] = []
 
-    def prompt(self, user_prompt: str, system_prompt: str | None = None, **kwargs) -> str:
+    def complete(self, user_prompt: str, system_prompt: str | None = None, **kwargs) -> Completion:
         self.calls.append(user_prompt)
         self.kwargs.append(kwargs)
-        return self.responder(user_prompt)
+        outcome = self.responder(user_prompt)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome if isinstance(outcome, Completion) else Completion.of(outcome)
+
+    def prompt(self, user_prompt: str, system_prompt: str | None = None, **kwargs) -> str:
+        return self.complete(user_prompt, system_prompt, **kwargs).text
 
 
 @pytest.fixture
@@ -97,7 +121,7 @@ def workspace(tmp_path, monkeypatch, fake_llms):
     monkeypatch.delenv("BABERU_DIR", raising=False)
     monkeypatch.delenv("BABERU_LOG_DIR", raising=False)
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: None)
-    fake_llms["main"] = FakeLLM(translate_all)
+    fake_llms["main"] = FakeLLM(translate_or_describe)
     (tmp_path / "ctx.txt").write_text("context", encoding="utf-8")
     numbered_subs(6).save(str(tmp_path / "video.ass"), encoding="utf-8")
     return tmp_path

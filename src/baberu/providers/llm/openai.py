@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from .base import LLMProvider
+from .base import Completion, LLMProvider, responses_completion
 
 
 class OProvider(LLMProvider):
@@ -10,13 +10,13 @@ class OProvider(LLMProvider):
         super().__init__(api_key, model, system_prompt, max_retries)
         self.client = OpenAI(api_key=self.api_key, max_retries=0)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         completion = self.client.responses.create(
             model=self.model,
             input=[{"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}],
             reasoning={"effort": "high"},
         )
-        return completion.output_text
+        return responses_completion(completion)
 
 
 class GPTProvider(LLMProvider):
@@ -26,7 +26,7 @@ class GPTProvider(LLMProvider):
         super().__init__(api_key, model, system_prompt, max_retries)
         self.client = OpenAI(api_key=self.api_key, max_retries=0)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         completion = self.client.responses.create(
             model=self.model,
             input=[
@@ -35,4 +35,4 @@ class GPTProvider(LLMProvider):
             ],
             tools=[{"type": "web_search_preview"}] if grounding else [],
         )
-        return completion.output_text
+        return responses_completion(completion)

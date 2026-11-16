@@ -235,7 +235,11 @@ def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None
         if plan.action("translate") == RUN:
             AIToolFactory.get_llm_provider(request.model)
         if plan.action("context") == RUN:
-            AIToolFactory.get_llm_provider(settings.translation.websearch_model)
+            websearch = AIToolFactory.get_llm_provider(settings.translation.websearch_model)
+            if not websearch.supports_grounding:
+                raise BaberuError(
+                    f"websearch_model {settings.translation.websearch_model} can't search the web. "
+                    f"Choose a model that can, or give your own notes with a context file.")
     except ValueError as error:
         raise BaberuError(str(error)) from error
 
@@ -274,7 +278,7 @@ def _clear_redone_work(request: RunRequest, job: Job) -> None:
     if _wants_redo(request, "context"):
         job.clear(job.path(Stage.CONTEXT))
     if _wants_redo(request, "translate"):
-        job.clear(job.path(Stage.TRANSLATED), job.path(Stage.PARTIAL))
+        job.clear(job.path(Stage.TRANSLATED), job.path(Stage.PARTIAL), _translation_report_path(job))
     if request.redo:
         job.save()
 
@@ -496,6 +500,9 @@ def _translate(sub_data: SSAFile,
 
     if partial.exists():
         _guard_paid_work(job, partial, source, None, "translate")
+        earlier_model = (job.origin_of(partial) or {}).get("model")
+        if earlier_model and earlier_model != request.model:
+            logger.warning(f"translate: resuming lines made with {earlier_model}; the rest will use {request.model}.")
     job.record_origin(partial, source, request.model)
     job.save()
 
@@ -506,7 +513,7 @@ def _translate(sub_data: SSAFile,
         model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries)
     start_index = line_range.start if line_range else 0
 
-    translated_lines = sub_translation.translate(
+    translated_lines, report = sub_translation.translate(
         sub_file=sub_data,
         output_file=partial,
         context_prompt=context,
@@ -515,16 +522,31 @@ def _translate(sub_data: SSAFile,
         lang_from=request.lang_from,
         lang_to=request.lang_to,
         options=options,
-        line_range=line_range)
+        line_range=line_range,
+        report_file=_translation_report_path(job))
     sub_data = sub_utils.replace_lines(translated_lines[start_index:], sub_data, start_index)
-    sub_data = sub_utils.md_to_ass(sub_data)
+    sub_data = sub_utils.md_to_ass(sub_data, line_range)
 
     sub_utils.write(sub_data, output)
     job.record_origin(output, source, request.model)
     job.clear(partial)
     job.save()
-    logger.info("translate: done")
+    _log_translation(report)
     return sub_data
+
+
+def _translation_report_path(job: Job) -> Path:
+    """translation.json sits beside the translation, one per language and --lines range."""
+    return job.path(Stage.PARTIAL).parent / "translation.json"
+
+
+def _log_translation(report: dict) -> None:
+    unresolved = sub_translation.unresolved_lines(report)
+    if not unresolved:
+        logger.info("translate: done")
+        return
+    shown = ", ".join(str(line) for line in list(unresolved)[:20]) + (", ..." if len(unresolved) > 20 else "")
+    logger.warning(f"translate: {len(unresolved)} lines unresolved ({shown}); see translation.json, fix with --lines")
 
 
 def _pad(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Settings) -> SSAFile:

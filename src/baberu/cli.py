@@ -7,6 +7,7 @@ import sys
 
 import dotenv
 import ffmpeg
+import pydantic
 
 from baberu import pipeline
 from baberu.errors import BaberuError
@@ -240,7 +241,10 @@ def _run(args) -> None:
     config_path = Path(args.config) if args.config else None
     if config_path and not config_path.is_file():
         raise BaberuError(f"Config file does not exist: {args.config}")
-    settings = Settings.model_validate(config_setup.load_config(config_path))
+    try:
+        settings = Settings.model_validate(config_setup.load_config(config_path))
+    except pydantic.ValidationError as error:
+        raise BaberuError(f"The config has settings baberu can't use:\n{error}") from error
 
     log_dir_text = environ.get("BABERU_LOG_DIR")
     logging_setup.setup_logging(

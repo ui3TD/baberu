@@ -1,6 +1,6 @@
 from anthropic import Anthropic
 
-from .base import LLMProvider
+from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider
 
 MAX_OUTPUT_TOKENS = 64000
 MAX_CONTINUATIONS = 5
@@ -18,7 +18,7 @@ class ClaudeProvider(LLMProvider):
         # Retries are handled once, in LLMProvider.prompt.
         self.client = Anthropic(api_key=self.api_key, max_retries=0)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         request = {
             "model": self.model,
             "max_tokens": MAX_OUTPUT_TOKENS,
@@ -40,13 +40,12 @@ class ClaudeProvider(LLMProvider):
             message = self._send(request, messages)
             continuations += 1
 
+        text = "".join(block.text for block in message.content if block.type == "text")
         if message.stop_reason == "refusal":
-            self.logger.warning(f"{self.model} declined the request.")
-            return ""
-        if message.stop_reason == "max_tokens":
-            self.logger.warning(f"{self.model} response was cut off at the output limit.")
-
-        return "".join(block.text for block in message.content if block.type == "text")
+            return Completion("", REFUSED)
+        if message.stop_reason in ("max_tokens", "model_context_window_exceeded", "pause_turn"):
+            return Completion.of(text, TRUNCATED)
+        return Completion.of(text, COMPLETE)
 
     def _send(self, request: dict, messages: list[dict]):
         with self.client.messages.stream(messages=messages, **request) as stream:

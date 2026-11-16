@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import logging
 import time
 
@@ -22,6 +23,42 @@ def is_retryable(error: Exception) -> bool:
     if isinstance(status, int):
         return status in RETRYABLE_STATUS_CODES or status >= 500
     return any(cls.__name__ in RETRYABLE_EXCEPTION_NAMES for cls in type(error).__mro__)
+
+
+COMPLETE = "complete"
+TRUNCATED = "truncated"
+REFUSED = "refused"
+EMPTY = "empty"
+
+
+@dataclass(frozen=True)
+class Completion:
+    """A response, and how it ended: complete, truncated, refused or empty."""
+    text: str
+    status: str = COMPLETE
+
+    @classmethod
+    def of(cls, text: str | None, status: str = COMPLETE) -> "Completion":
+        """Marks a response with no text as empty, unless a stronger reason is known."""
+        text = text or ""
+        if status == COMPLETE and not text.strip():
+            status = EMPTY
+        return cls(text, status)
+
+
+def responses_completion(response) -> Completion:
+    """Reads how an OpenAI-style Responses API reply ended.
+
+    OpenAI, Grok and OpenRouter all answer through this API.
+    """
+    for item in getattr(response, "output", None) or []:
+        for part in getattr(item, "content", None) or []:
+            if getattr(part, "type", None) == "refusal":
+                return Completion(response.output_text or "", REFUSED)
+    if getattr(response, "status", None) == "incomplete":
+        reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        return Completion.of(response.output_text, REFUSED if reason == "content_filter" else TRUNCATED)
+    return Completion.of(response.output_text)
 
 
 class LLMProvider(ABC):
@@ -51,7 +88,16 @@ class LLMProvider(ABC):
                *,
                grounding: bool = False,
                prefill: str = "") -> str:
-        """Sends a prompt to the LLM and returns the response as a string.
+        """Sends a prompt to the LLM and returns the response text. See `complete`."""
+        return self.complete(user_prompt, system_prompt, grounding=grounding, prefill=prefill).text
+
+    def complete(self,
+                 user_prompt: str,
+                 system_prompt: str | None = None,
+                 *,
+                 grounding: bool = False,
+                 prefill: str = "") -> Completion:
+        """Sends a prompt to the LLM and returns the response, with how it ended.
 
         Args:
             user_prompt: The user's input prompt.
@@ -71,7 +117,9 @@ class LLMProvider(ABC):
         while True:
             try:
                 response = self._complete(user_prompt, system, grounding, prefill)
-                self.logger.debug(f"{self.model} response:\n{response}")
+                self.logger.debug(f"{self.model} response ({response.status}):\n{response.text}")
+                if response.status != COMPLETE:
+                    self.logger.warning(f"{self.model} response was {response.status}.")
                 return response
             except Exception as error:
                 if attempt >= self.max_retries or not is_retryable(error):
@@ -84,5 +132,5 @@ class LLMProvider(ABC):
                 time.sleep(delay)
 
     @abstractmethod
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
-        """Makes one request to the provider and returns the response text."""
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
+        """Makes one request to the provider and returns the response."""

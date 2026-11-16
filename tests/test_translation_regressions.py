@@ -4,8 +4,12 @@ from conftest import FakeLLM, numbered_subs, translate_all
 from test_translation import run_translate
 
 
-def test_leading_ellipsis_does_not_destroy_the_next_line():
-    assert translation_response._clean_ellipses(["...foo", "bar", "baz"]) == ["foo", "bar", "baz"]
+def test_leading_ellipsis_is_kept_unless_the_line_before_trails_off():
+    assert translation_response._clean_ellipses(["...foo", "bar", "baz"]) == ["...foo", "bar", "baz"]
+
+
+def test_a_line_that_is_only_an_ellipsis_survives():
+    assert translation_response._clean_ellipses(["foo...", "...", "...bar"]) == ["foo...", "...", "...bar"]
 
 
 def test_matching_ellipses_across_lines_are_removed():
@@ -39,7 +43,7 @@ def test_partial_file_keeps_lines_after_a_segment(fake_llms, tmp_path):
 
     run_translate(fake_llms, numbered_subs(6), partial, line_range=LineRange(1, 2))
 
-    assert partial.read_text("utf-8").split("\n") == [
+    assert partial.read_text("utf-8").splitlines() == [
         "line0", "T:line1", "T:line2", "line3", "line4", "line5",
     ]
 

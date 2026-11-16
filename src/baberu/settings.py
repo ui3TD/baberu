@@ -75,9 +75,9 @@ class TranslationSettings(BaseModel):
     fallback_model: str = "o3"
     default_lang_to: str = "en"
     context_lines: int = 100
-    batch_lines: int = 50
+    batch_lines: int = Field(default=50, ge=1)
     discard_lines: int = 10
-    translate_retries: int = 3
+    translate_retries: int = Field(default=3, ge=1)
     server_retries: int = 20
     max_cont_lines: int = 5
     confirm_auto_context: bool = True

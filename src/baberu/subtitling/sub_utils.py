@@ -105,7 +105,7 @@ def splice(subtitles: SSAFile,
     logger.debug(f"Removed {num_to_remove} original subtitles and inserted {len(new_subtitles.events)} new lines.")
     return subtitles
 
-def md_to_ass(subtitles: SSAFile) -> SSAFile:
+def md_to_ass(subtitles: SSAFile, line_range: LineRange | None = None) -> SSAFile:
     """Converts markdown-style formatting in subtitles to ASS override tags.
     
     Conversion rules:
@@ -115,7 +115,8 @@ def md_to_ass(subtitles: SSAFile) -> SSAFile:
     
     Args:
         subtitles: The SSAFile object to process.
-        
+        line_range: Converts only these lines.
+
     Returns:
         The SSAFile object with ASS formatting applied.
     """
@@ -129,8 +130,8 @@ def md_to_ass(subtitles: SSAFile) -> SSAFile:
     bold_pattern = re.compile(r'\*\*(.+?)\*\*')
     italic_pattern = re.compile(r'(?<!\*)\*([^*]+?)\*(?!\*)')
     
-    # Process each subtitle event
-    for event in subtitles.events:
+    events = subtitles.events[line_range.start:line_range.end + 1] if line_range else subtitles.events
+    for event in events:
         if r"{\i1}" in event.text or r"{\b1}" in event.text:
             continue  # Skip processing this event
 

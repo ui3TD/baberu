@@ -1,7 +1,7 @@
 from google.genai import Client
 from google.genai.types import Content, GenerateContentConfig, GoogleSearch, Part, SafetySetting, Tool
 
-from .base import LLMProvider
+from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider
 
 _UNFILTERED = [
     SafetySetting(category=category, threshold="BLOCK_NONE")
@@ -21,7 +21,7 @@ class GeminiProvider(LLMProvider):
         super().__init__(api_key, model, system_prompt, max_retries)
         self.client = Client(api_key=self.api_key)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> str:
+    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         config = {"system_instruction": system_prompt, "safety_settings": _UNFILTERED}
         if grounding:
             config["tools"] = [Tool(google_search=GoogleSearch())]
@@ -32,8 +32,24 @@ class GeminiProvider(LLMProvider):
             config=GenerateContentConfig(**config),
         )
 
-        if not response.text:
-            self.logger.warning("Gemini returned empty or invalid response")
-            return ""
+        return gemini_completion(response)
 
-        return response.text
+
+_REFUSAL_REASONS = {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "MODEL_ARMOR"}
+
+
+def gemini_completion(response) -> Completion:
+    """Reads how a Gemini reply ended from its finish reason, or from a blocked prompt."""
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is not None and getattr(feedback, "block_reason", None):
+        return Completion("", REFUSED)
+
+    candidates = getattr(response, "candidates", None) or []
+    reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+    reason = getattr(reason, "name", reason)
+    text = response.text if candidates else ""
+    if reason == "MAX_TOKENS":
+        return Completion.of(text, TRUNCATED)
+    if reason in _REFUSAL_REASONS:
+        return Completion(text or "", REFUSED)
+    return Completion.of(text, COMPLETE)

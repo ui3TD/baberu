@@ -4,7 +4,7 @@ import pytest
 
 from baberu.providers.factory import AIToolFactory
 from baberu.providers.llm import base as llm_base
-from baberu.providers.llm.base import LLMProvider, is_retryable
+from baberu.providers.llm.base import Completion, LLMProvider, is_retryable
 from baberu.providers.llm.claude import ClaudeProvider
 from baberu.providers.llm.grok import GrokProvider
 
@@ -36,7 +36,7 @@ class ScriptedProvider(LLMProvider):
         outcome = next(self.outcomes)
         if isinstance(outcome, Exception):
             raise outcome
-        return outcome
+        return Completion.of(outcome)
 
 
 @pytest.fixture(autouse=True)
@@ -205,3 +205,78 @@ def test_transcription_type_needs_no_key(monkeypatch):
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
 
     assert AIToolFactory.get_transcription_provider_type("scribe_v1").__name__ == "ScribeProvider"
+
+
+def test_complete_reports_status_and_prompt_returns_text():
+    provider = ScriptedProvider(["", "hi"])
+
+    assert provider.complete("x").status == "empty"
+    assert provider.prompt("x") == "hi"
+
+
+@pytest.mark.parametrize(
+    "stop_reason,status",
+    [("end_turn", "complete"), ("max_tokens", "truncated"), ("refusal", "refused")],
+)
+def test_claude_maps_stop_reason_to_status(stop_reason, status):
+    provider, _ = claude_with([text_message("partial", stop_reason=stop_reason)])
+
+    assert provider.complete("hi").status == status
+
+
+def gemini_response(text, finish_reason=None, block_reason=None):
+    candidates = [SimpleNamespace(finish_reason=SimpleNamespace(name=finish_reason))] if finish_reason else []
+    return SimpleNamespace(text=text, candidates=candidates,
+                           prompt_feedback=SimpleNamespace(block_reason=block_reason))
+
+
+@pytest.mark.parametrize(
+    "response,status",
+    [
+        (gemini_response("ok", "STOP"), "complete"),
+        (gemini_response("cut", "MAX_TOKENS"), "truncated"),
+        (gemini_response(None, "SAFETY"), "refused"),
+        (gemini_response(None, "PROHIBITED_CONTENT"), "refused"),
+        (gemini_response(None, block_reason="SAFETY"), "refused"),
+        (gemini_response(None, "STOP"), "empty"),
+    ],
+)
+def test_gemini_maps_finish_reason_to_status(response, status):
+    from baberu.providers.llm.gemini import gemini_completion
+
+    assert gemini_completion(response).status == status
+
+
+def responses_reply(text, status="completed", reason=None, refusal=False):
+    content = [SimpleNamespace(type="refusal", refusal="no")] if refusal else [SimpleNamespace(type="output_text")]
+    return SimpleNamespace(output_text=text, status=status,
+                           incomplete_details=SimpleNamespace(reason=reason) if reason else None,
+                           output=[SimpleNamespace(type="message", content=content)])
+
+
+@pytest.mark.parametrize(
+    "response,status",
+    [
+        (responses_reply("ok"), "complete"),
+        (responses_reply("cut", "incomplete", "max_output_tokens"), "truncated"),
+        (responses_reply("", "incomplete", "content_filter"), "refused"),
+        (responses_reply("", refusal=True), "refused"),
+        (responses_reply(""), "empty"),
+    ],
+)
+def test_responses_api_maps_status(response, status):
+    from baberu.providers.llm.base import responses_completion
+
+    assert responses_completion(response).status == status
+
+
+@pytest.mark.parametrize("module,cls", [("openai", "GPTProvider"), ("openai", "OProvider"),
+                                        ("grok", "GrokProvider"), ("openrouter", "OpenRouterProvider")])
+def test_responses_providers_report_truncation(module, cls):
+    import importlib
+
+    provider = getattr(importlib.import_module(f"baberu.providers.llm.{module}"), cls)("k", "m")
+    reply = responses_reply("cut", "incomplete", "max_output_tokens")
+    provider.client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: reply))
+
+    assert provider.complete("hi").status == "truncated"
