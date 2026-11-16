@@ -1,9 +1,10 @@
 """Works out what a run will do, checks it can succeed, then does it."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+import hashlib
 import json
 import logging
 import shutil
@@ -12,6 +13,7 @@ import sys
 from baberu.providers.factory import AIToolFactory
 from baberu.providers.llm import base as llm_base
 from baberu.providers.llm.base import LLMProvider
+from baberu.publish import nekocap, publish
 from pysubs2 import SSAFile
 
 from baberu import legacy
@@ -60,6 +62,10 @@ class Plan:
     hardcode_video: Path | None = None
     hardcode_subs: Path | None = None
     result_stage: str = ""
+    # The file each subtitle stage will read, when it's already on disk before the run starts.
+    inputs: dict[str, Path | None] = field(default_factory=dict)
+    # --lines with -t on a job that has a whole translation: only those lines are translated again.
+    in_place: bool = False
 
     def action(self, name: str) -> str | None:
         return next((stage.action for stage in self.stages if stage.name == name), None)
@@ -125,7 +131,7 @@ def _find_media(request: RunRequest, job: Job, input_file: Path, video: Path | N
 
 
 def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: Path, video: Path | None,
-                audio: Path | None) -> Plan:
+                audio: Path | None, in_place: bool = False) -> Plan:
     stages: list[PlannedStage] = []
     video, audio, retranscribe = _find_media(request, job, input_file, video, audio)
 
@@ -147,20 +153,28 @@ def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: P
         stages.append(PlannedStage("convert", action))
 
     has_subtitles = bool(request.sub_file) or any(s.name == "convert" for s in stages)
-    if has_subtitles and retranscribe and will_have_audio:
+    # A job remembers its own chain: optional stages that made its saved work stay in it, so asking
+    # for a later stage reads the same subtitles a full run did.
+    from_transcript = any(s.name == "convert" for s in stages)
+    later_than_retranscribe = request.fix or request.translate or request.pad
+    if has_subtitles and ((retranscribe and will_have_audio) or
+                          (from_transcript and later_than_retranscribe and job.has(job.path(Stage.TWOPASS)))):
         stages.append(PlannedStage("retranscribe", _reuse_or_run(request, job, "retranscribe", job.path(Stage.TWOPASS))))
-    if has_subtitles and request.fix:
+    if has_subtitles and (request.fix or (from_transcript and (request.translate or request.pad)
+                                          and job.has(job.path(Stage.FIXED)))):
         stages.append(PlannedStage("fix", RUN))
     if has_subtitles and request.translate:
-        translate = _reuse_or_run(request, job, "translate", job.path(Stage.TRANSLATED))
+        translate = RUN if in_place else _reuse_or_run(request, job, "translate", job.path(Stage.TRANSLATED))
         if translate == RUN and not request.context_file:
             stages.append(PlannedStage("context", _reuse_or_run(request, job, "context", job.path(Stage.CONTEXT))))
-        stages.append(PlannedStage("translate", translate, _line_count_detail(request, job)))
-    if has_subtitles and request.pad:
+        detail = f"lines {request.line_range.label[1:]}, in place" if in_place else _line_count_detail(request, job)
+        stages.append(PlannedStage("translate", translate, detail))
+    if has_subtitles and (request.pad or (request.translate and job.has(job.path(Stage.PADDED)))):
         stages.append(PlannedStage("pad", RUN))
     _plan_keyterms(request, settings, job, stages)
 
-    plan = Plan(stages, input_file, video, audio)
+    plan = Plan(stages, input_file, video, audio, in_place=in_place)
+    plan.inputs = _plan_inputs(request, settings, job, stages)
     names = {stage.name for stage in stages}
 
     plan.result_stage = next((label for name, label in _SUBTITLE_STAGE_NAMES if name in names), "")
@@ -173,7 +187,62 @@ def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: P
             plan.subtitle_target = request.output_file
 
     _plan_video_output(request, job, plan, has_subtitles, input_file)
+    if request.nekocap and plan.action("translate"):
+        plan.stages.append(PlannedStage("nekocap", RUN, publish.describe(job, settings, request.nekocap_privacy)))
     return plan
+
+
+_SUBTITLE_OUTPUTS = {"retranscribe": Stage.TWOPASS, "fix": Stage.FIXED, "translate": Stage.TRANSLATED,
+                     "pad": Stage.PADDED}
+
+
+def _plan_inputs(request: RunRequest, settings: Settings, job: Job, stages: list[PlannedStage]) -> dict[str, Path | None]:
+    """Follows the subtitles through the plan while they're files already on disk.
+
+    Fix and pad are free, so they are marked REUSE here when their saved output was made
+    from the same input with the same settings; the run checks again before using it.
+    """
+    inputs: dict[str, Path | None] = {}
+    current = request.sub_file
+    for stage in stages:
+        if stage.name == "convert":
+            raw = job.path(Stage.RAW)
+            current = raw if stage.action == REUSE and raw.exists() else None   # a dry run's adopted files aren't copied
+            continue
+        if stage.name not in _SUBTITLE_OUTPUTS:
+            continue
+        inputs[stage.name] = current
+        output = job.path(_SUBTITLE_OUTPUTS[stage.name])
+        if stage.name in _FREE_STAGES and current is not None:
+            key = _FREE_STAGES[stage.name](settings, job.line_range)
+            if _free_output_matches(job, output, sub_utils.timed_fingerprint(sub_utils.load(current)), key):
+                stage.action = REUSE
+        current = output if stage.action == REUSE and current is not None and output.exists() else None
+    return inputs
+
+
+def _fix_settings(settings: Settings, line_range: LineRange | None) -> str:
+    return _settings_key([settings.mistimed_lines.model_dump(), settings.mistimed_segs.model_dump(),
+                          settings.anomalies.max_letters_per_sec], line_range)
+
+
+def _pad_settings(settings: Settings, line_range: LineRange | None) -> str:
+    return _settings_key([settings.subtitle_padding.model_dump()], line_range)
+
+
+def _settings_key(parts: list, line_range: LineRange | None) -> str:
+    text = json.dumps([parts, line_range.label if line_range else None], sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+_FREE_STAGES = {"fix": _fix_settings, "pad": _pad_settings}
+
+
+def _free_output_matches(job: Job, output: Path, source: str, key: str) -> bool:
+    """Whether a free stage's saved output was made from this input with these settings."""
+    origin = job.origin_of(output)
+    return bool(origin) and output.exists() and origin.get("source") == source \
+        and (origin.get("options") or {}).get("settings") == key
 
 
 def _keyterms_path(job: Job) -> Path:
@@ -181,7 +250,7 @@ def _keyterms_path(job: Job) -> Path:
 
 
 def _source_info_path(job: Job) -> Path:
-    return job.folder / "source.json"
+    return job.source_info_path
 
 
 def _takes_keyterms(model: str) -> bool:
@@ -254,11 +323,18 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
         raise BaberuError("ffmpeg was not found. Install it and make sure it's on your PATH.")
 
     _check_api_keys(request, settings, plan)
+    if request.nekocap:
+        _check_nekocap(request, settings, job, plan)
+    # Checked here too, so a dry run reports it instead of the run stopping partway.
     if plan.action("transcribe") == REUSE:
-        # Checked here too, so a dry run reports it instead of the run stopping partway.
         transcript = job.path(Stage.TRANSCRIPT)
         _guard_paid_work(job, transcript, None, settings.transcription.model, "transcribe")
         _guard_options(job, transcript, settings.transcription.options, "transcribe")
+    for name, model in (("retranscribe", _retranscribe_model(settings)), ("translate", request.model)):
+        source_file = plan.inputs.get(name)
+        if plan.action(name) == REUSE and source_file is not None:
+            _guard_paid_work(job, job.path(_SUBTITLE_OUTPUTS[name]), sub_utils.fingerprint(sub_utils.load(source_file)),
+                             model, name)
 
     for target in (plan.subtitle_target, plan.video_target):
         if _is_same_file(target, plan.input_file) or _is_same_file(target, plan.hardcode_video):
@@ -270,7 +346,8 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
     target = plan.subtitle_target
     if target and target.exists() and not request.overwrite and plan.spends_money \
             and file_hash(target) != job.published_hash(target.name):
-        raise BaberuError(f"{target} already exists and wasn't written by baberu. Use --overwrite to replace it.")
+        raise BaberuError(f"{target} was changed outside baberu, and this run would replace it. "
+                          f"Use --overwrite to replace it, or `baberu publish` to upload it as it is.")
 
 
 def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None:
@@ -297,14 +374,29 @@ def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None
         raise BaberuError(str(error)) from error
 
 
-def _print_plan(plan: Plan) -> None:
+def _check_nekocap(request: RunRequest, settings: Settings, job: Job, plan: Plan) -> None:
+    """Checks the login and the video before anything is spent. Reads only."""
+    if not plan.action("nekocap"):
+        raise BaberuError("--nekocap uploads a translation, and this run doesn't make one. "
+                          "To upload an existing one, use `baberu publish`.")
+    if job.line_range:
+        raise BaberuError("--nekocap uploads the whole translation, so it can't be used with a separate --lines result.")
+    publish.check(job, plan.input_file, settings)
+
+
+def _print_plan(plan: Plan, job: Job) -> None:
     print(f"Plan for {plan.input_file.name}:", file=sys.stderr)
     for stage in plan.stages:
         notes = ", ".join(filter(None, ["paid" if stage.spends_money else "", stage.detail]))
         print(f"  {stage.name:<15}{stage.action:<7}{notes}", file=sys.stderr)
     for target in (plan.subtitle_target, plan.video_target):
         if target:
-            print(f"Result: {target}", file=sys.stderr)
+            edited = target.exists() and file_hash(target) != job.published_hash(target.name)
+            print(f"Result: {target}" + (" (changed outside baberu)" if edited else ""), file=sys.stderr)
+    uploaded = publish.record(job)
+    if uploaded.get("captionId"):
+        print(f"On NekoCap: {nekocap.caption_url(uploaded['captionId'])} ({uploaded.get('privacy')}): "
+              f"{uploaded.get('title', '')}", file=sys.stderr)
 
 
 def _preview_url(url: str) -> None:
@@ -316,7 +408,7 @@ def _preview_url(url: str) -> None:
 
 # --- Redo ---
 
-def _clear_redone_work(request: RunRequest, job: Job) -> None:
+def _clear_redone_work(request: RunRequest, job: Job, plan: Plan) -> None:
     if _wants_redo(request, "extract"):
         audio = job.find_audio()
         if audio:
@@ -333,7 +425,11 @@ def _clear_redone_work(request: RunRequest, job: Job) -> None:
     if _wants_redo(request, "context"):
         job.clear(job.path(Stage.CONTEXT))
     if _wants_redo(request, "translate"):
-        job.clear(job.path(Stage.TRANSLATED), job.path(Stage.PARTIAL), _translation_report_path(job))
+        if plan.in_place:   # only the lines asked for are translated again
+            partial, report = _in_place_paths(job, request.line_range)
+            job.clear(partial, report)
+        else:
+            job.clear(job.path(Stage.TRANSLATED), job.path(Stage.PARTIAL), _translation_report_path(job))
     if request.redo:
         job.save()
 
@@ -420,11 +516,23 @@ def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) ->
     used = ", ".join(p.stem for p in list_paths) or "none"
     logger.info(f"keyterms: {len(terms)} terms (lists: {used}{', video details' if info else ''})")
 
-    if terms and options.confirm and sys.stdin.isatty():
-        input(f"\n{', '.join(terms)}\n\n"
-              f"Review or edit {path} if needed, then press Enter to continue (Ctrl-C to cancel)...")
+    if terms and options.confirm and _pause_for_review(
+            request, f"\n{', '.join(terms)}\n\n"
+                     f"Review or edit {path} if needed, then press Enter to continue (Ctrl-C to cancel)..."):
         terms = keyterms.load(path, options.max_terms)
     return terms
+
+
+def _pause_for_review(request: RunRequest, message: str) -> bool:
+    """Waits for Enter so a generated file can be edited. False when nobody is there to press it."""
+    if not request.review or not sys.stdin.isatty():
+        return False
+    try:
+        input(message)
+    except EOFError:  # isatty() is also true for NUL on Windows and for shells without a keyboard
+        logger.info("no keyboard; continuing without review")
+        return False
+    return True
 
 
 def _with_keyterms(options: dict, terms: list[str] | None) -> dict:
@@ -536,8 +644,22 @@ def _twopass(sub_data: SSAFile,
     return sub_data, _shift(line_range, initial_lines, sub_data)
 
 
+def _reuse_free_output(stage: str, job: Job, output: Path, source: str, key: str) -> SSAFile | None:
+    """A free stage's saved output, when it was made from this input with these settings."""
+    if not _free_output_matches(job, output, source, key):
+        return None
+    logger.info(f"{stage}: unchanged, reusing {output.name}")
+    return sub_utils.load(output)
+
+
 def _fix(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Settings) -> tuple[SSAFile, LineRange | None]:
     initial_lines = len(sub_data.events)
+    output = job.path(Stage.FIXED)
+    source, key = sub_utils.timed_fingerprint(sub_data), _fix_settings(settings, line_range)
+    saved = _reuse_free_output("fix", job, output, source, key)
+    if saved is not None:
+        return saved, _shift(line_range, initial_lines, saved)
+
     if settings.mistimed_lines.method == "squeezed":
         sub_data = sub_correction.start_squeezed_lines_earlier(sub_data, settings.mistimed_lines, line_range)
     else:
@@ -545,17 +667,23 @@ def _fix(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Se
             sub_data, settings.mistimed_lines.mistimed_line_thresh_sec, settings.mistimed_segs, line_range,
             settings.anomalies.max_letters_per_sec)
     sub_data = sub_correction.remove_empty(sub_data, line_range)
-    sub_utils.write(sub_data, job.path(Stage.FIXED))
+    sub_utils.write(sub_data, output)
+    job.record_origin(output, source, options={"settings": key})
+    job.save()
     logger.info("fix: done")
     return sub_data, _shift(line_range, initial_lines, sub_data)
 
 
 def _context(sub_data: SSAFile, request: RunRequest, job: Job, action: str, options: TranslationSettings) -> str:
     """Generates or loads the background notes given to the translator."""
-    if request.context_file:
-        return sub_translation.load_context(request.context_file)
-
     context_file = job.path(Stage.CONTEXT)
+    if request.context_file:
+        context_data = sub_translation.load_context(request.context_file)
+        if not _is_same_file(request.context_file, context_file):
+            # Kept in the job, so the NekoCap title is translated with the same notes.
+            sub_translation.write_lines([context_data], context_file)
+        return context_data
+
     if action == REUSE:
         _announce_reuse("context", context_file)
         return sub_translation.load_context(context_file)
@@ -570,8 +698,8 @@ def _context(sub_data: SSAFile, request: RunRequest, job: Job, action: str, opti
                                                     _video_details(job))
     sub_translation.write_lines([context_data], context_file)
 
-    if options.confirm_auto_context and sys.stdin.isatty():
-        input(f"\n{context_data}\n\nReview or edit {context_file} if needed, then press Enter to continue (Ctrl-C to cancel)...")
+    if options.confirm_auto_context and _pause_for_review(
+            request, f"\n{context_data}\n\nReview or edit {context_file} if needed, then press Enter to continue (Ctrl-C to cancel)..."):
         context_data = sub_translation.load_context(context_file)
     return context_data
 
@@ -612,6 +740,9 @@ def _translate(sub_data: SSAFile,
                plan: Plan,
                line_range: LineRange | None,
                options: TranslationSettings) -> SSAFile:
+    if plan.in_place:
+        return _translate_in_place(sub_data, request, job, plan, line_range, options)
+
     output = job.path(Stage.TRANSLATED)
     partial = job.path(Stage.PARTIAL)
     source = sub_utils.fingerprint(sub_data)
@@ -659,6 +790,49 @@ def _translate(sub_data: SSAFile,
     return sub_data
 
 
+def _in_place_paths(job: Job, line_range: LineRange) -> tuple[Path, Path]:
+    """Progress and report for translating some lines again, kept apart from the whole file's."""
+    folder = job.path(Stage.TRANSLATED).parent
+    return folder / f"partial.{line_range.label}.txt", folder / f"translation.{line_range.label}.json"
+
+
+def _translate_in_place(sub_data: SSAFile, request: RunRequest, job: Job, plan: Plan, line_range: LineRange,
+                        options: TranslationSettings) -> SSAFile:
+    """Translates only these lines again, and puts them into the job's whole translation."""
+    output = job.path(Stage.TRANSLATED)
+    source = sub_utils.fingerprint(sub_data)
+    whole = sub_utils.load(output)
+    origin = job.origin_of(output)
+    if (origin and origin.get("source") != source) or len(whole.events) != len(sub_data.events):
+        raise BaberuError(f"{output.name} was made from different subtitles, so its lines can't be replaced one by one. "
+                          f"Use --redo translate without --lines to translate everything again, which costs money.")
+    if line_range.end >= len(whole.events):
+        raise BaberuError(f"--lines goes past the last line ({len(whole.events)}).")
+
+    partial, report_file = _in_place_paths(job, line_range)
+    context = _context(sub_data, request, job, plan.action("context") or REUSE, options)
+    system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to)
+    llm = AIToolFactory.get_llm_provider(
+        model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries,
+        effort=options.effort)
+    translated_lines, report = sub_translation.translate(
+        sub_file=sub_data, output_file=partial, context_prompt=context, llm=llm,
+        fallback_llm=_fallback_llm(system_prompt, request.model, options),
+        lang_from=request.lang_from, lang_to=request.lang_to, options=options,
+        line_range=line_range, report_file=report_file)
+
+    new_lines = translated_lines[line_range.start:line_range.end + 1]
+    whole = sub_utils.replace_lines(new_lines, whole, line_range.start)
+    whole = sub_utils.md_to_ass(whole, line_range)
+    sub_utils.write(whole, output)
+    job.record_origin(output, source, (origin or {}).get("model") or request.model)
+    job.clear(partial)
+    job.save()
+    logger.info(f"translate: replaced lines {line_range.label[1:]} in {output.name}")
+    _log_translation(report)
+    return whole
+
+
 def _translation_report_path(job: Job) -> Path:
     """translation.json sits beside the translation, one per language and --lines range."""
     return job.path(Stage.PARTIAL).parent / "translation.json"
@@ -674,8 +848,16 @@ def _log_translation(report: dict) -> None:
 
 
 def _pad(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Settings) -> SSAFile:
+    output = job.path(Stage.PADDED)
+    source, key = sub_utils.timed_fingerprint(sub_data), _pad_settings(settings, line_range)
+    saved = _reuse_free_output("pad", job, output, source, key)
+    if saved is not None:
+        return saved
+
     sub_data = sub_correction.apply_timing_standards(sub_data, settings.subtitle_padding, line_range)
-    sub_utils.write(sub_data, job.path(Stage.PADDED))
+    sub_utils.write(sub_data, output)
+    job.record_origin(output, source, options={"settings": key})
+    job.save()
     logger.info("pad: done")
     return sub_data
 
@@ -688,7 +870,12 @@ def _publish(job: Job, source: Path, target: Path, overwrite: bool) -> None:
 
     if target.exists():
         current_hash = file_hash(target)
-        if current_hash != new_hash and current_hash != job.published_hash(target.name) and not overwrite:
+        edited = current_hash != job.published_hash(target.name)
+        if edited and new_hash == job.published_hash(target.name) and not overwrite:
+            # Nothing new to hand back, so the user's edits stand.
+            logger.info(f"Keeping your edits to {target.name}; baberu has nothing new for it.")
+            return
+        if current_hash != new_hash and edited and not overwrite:
             raise BaberuError(
                 f"{target} already exists and was changed outside baberu. "
                 f"Use --overwrite to replace it. The new version is in {job.folder}.")
@@ -774,13 +961,16 @@ def _is_media_source(input_file: Path) -> bool:
 
 def run(request: RunRequest, settings: Settings) -> None:
     """Runs one job from start to finish."""
-    if request.url and request.dry_run:
-        _preview_url(request.url)
-        return
-
     input_file, video, audio = request.input_file, request.video_file, request.audio_file
     info: dict = {}
-    if request.url:
+    if request.url and request.dry_run:
+        # An earlier download, and its work folder, can be planned without downloading again.
+        input_file = av_utils.find_download(request.url, request.output_dir)
+        if not input_file:
+            _preview_url(request.url)
+            return
+        video, audio = (None, input_file) if kind_of(input_file) is FileKind.AUDIO else (input_file, None)
+    elif request.url:
         logger.info("download: fetching...")
         input_file, info = av_utils.download(request.url, request.output_dir)
         logger.info(f"download: {input_file.name}")
@@ -796,14 +986,21 @@ def run(request: RunRequest, settings: Settings) -> None:
     if _is_media_source(input_file):
         job.check_source(input_file.name)
 
-    plan = _build_plan(request, settings, job, input_file, video, audio)
+    # --lines with -t on a job that already has a whole translation corrects those lines in it,
+    # instead of making a separate result for the range.
+    in_place = bool(request.line_range and request.translate and not request.retranscribe_required
+                    and not request.fix_named and job.has(job.path(Stage.TRANSLATED, whole_file=True)))
+    if in_place:
+        job.line_range = None
+
+    plan = _build_plan(request, settings, job, input_file, video, audio, in_place)
     _preflight(request, settings, job, plan)
 
     if request.dry_run:
-        _print_plan(plan)
+        _print_plan(plan, job)
         return
 
-    _clear_redone_work(request, job)
+    _clear_redone_work(request, job, plan)
     health.repairs.clear()
     llm_base.ledger.clear()
     if _is_media_source(input_file):
@@ -832,7 +1029,8 @@ def _save_source_info(job: Job, input_file: Path, info: dict) -> None:
 
 def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -> list[Path]:
     video, audio = plan.video, plan.audio
-    line_range = request.line_range
+    # In place, only the translation works on the range; everything else is the whole file.
+    line_range = None if plan.in_place else request.line_range
     transcript = None
     sub_data: SSAFile | None = None
     results: list[Path] = []
@@ -863,7 +1061,8 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
     if plan.action("fix"):
         sub_data, line_range = _fix(sub_data, job, line_range, settings)
     if plan.action("translate"):
-        sub_data = _translate(sub_data, request, job, plan, line_range, settings.translation)
+        sub_data = _translate(sub_data, request, job, plan, request.line_range if plan.in_place else line_range,
+                              settings.translation)
     if plan.action("pad"):
         sub_data = _pad(sub_data, job, line_range, settings)
 
@@ -875,6 +1074,10 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
         results.append(_deliver_stage_file(request, job, job.path(Stage.TRANSCRIPT)))
     elif plan.action("extract") and not (plan.action("hardcode") or plan.action("audio_to_video")):
         results.append(_deliver_stage_file(request, job, audio))
+
+    if plan.action("nekocap"):
+        publish.upload(publish.Upload(job, plan.subtitle_target, plan.input_file, request.lang_from, request.lang_to,
+                                      request.nekocap_privacy or settings.nekocap.privacy), settings)
 
     if plan.action("hardcode"):
         av_utils.hardcode_subtitles(plan.hardcode_video, plan.hardcode_subs, plan.video_target)

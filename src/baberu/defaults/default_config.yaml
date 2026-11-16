@@ -95,6 +95,13 @@ translation:
   max_cont_lines: 5
   confirm_auto_context: true
 
+# Uploading translations to nekocap.com (baberu publish, or --nekocap). Run baberu-nekocap-login once
+# to save your login in .env as NEKOCAP_SESSION_TOKEN.
+nekocap:
+  privacy: "public"      # or "unlisted"; --nekocap-unlisted overrides it for one run
+  title_model: ""        # translates the video title, with the job's notes; empty: translation.default_model
+  video_languages: {ja: ja_JP}   # NekoCap's code for the video's language, by source language
+
 # Names and jargon sent to the transcription service (ElevenLabs Scribe) so they are
 # spelled right. Scribe charges 20% more when keyterms are sent.
 keyterms:

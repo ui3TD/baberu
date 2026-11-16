@@ -129,6 +129,20 @@ def scribe_run(workspace, monkeypatch, fake_llms):
     return seen
 
 
+def test_keyterms_review_without_a_keyboard_carries_on(scribe_run, workspace, monkeypatch):
+    config_setup.load_config()["keyterms"]["confirm"] = True
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+
+    def end_of_input(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", end_of_input)
+
+    run_cli(monkeypatch, workspace / "show.m4a", "-s")
+
+    assert "野口衣織" in scribe_run[-1]["keyterms"]
+
+
 def test_transcription_gets_the_jobs_keyterms(scribe_run, workspace, monkeypatch):
     run_cli(monkeypatch, workspace / "show.m4a", "-s")
 

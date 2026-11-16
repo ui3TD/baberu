@@ -78,6 +78,12 @@ def fingerprint(sub_file: SSAFile) -> str:
     """Identifies subtitle text, to tell whether paid work still matches it."""
     return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
 
+
+def timed_fingerprint(sub_file: SSAFile) -> str:
+    """Identifies subtitle text and timing, to tell whether a free stage's output still matches its input."""
+    rows = (f"{e.start}\t{e.end}\t{e.text}" for e in sub_file.events)
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
 def splice(subtitles: SSAFile, 
            line_range: LineRange,
            new_subtitles: SSAFile) -> SSAFile:

@@ -16,6 +16,7 @@ dependencies = [
     "elevenlabs>=2.6.0",
     "ffmpeg-python>=0.2.0",
     "google-genai>=1.19.0",
+    "httpx>=0.28.1",
     "langcodes[data]>=3.5.0",
     "openai>=1.0.0",
     "platformdirs>=4.2.0",
@@ -23,7 +24,7 @@ dependencies = [
     "pysubs2>=1.8.0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",
-    "yt-dlp[default]>=2025.6.30"
+    "yt-dlp[default]>=2025.6.30",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 baberu = "baberu.__main__:main"
+baberu-nekocap-login = "baberu.publish.login:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

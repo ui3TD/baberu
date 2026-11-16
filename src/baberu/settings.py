@@ -118,6 +118,16 @@ class KeytermSettings(BaseModel):
     retranscribe: bool = True  # send them on the second pass too
 
 
+class NekoCapSettings(BaseModel):
+    """Uploading finished translations to nekocap.com (baberu publish, --nekocap)."""
+    privacy: Literal["public", "unlisted"] = "public"
+    title_model: str = ""  # translates the video title, with the job's notes; empty: translation.default_model
+    # NekoCap's code for the video's language, by baberu's source language. Others are sent as they are.
+    video_languages: dict[str, str] = {"ja": "ja_JP"}
+    server_url: str = "https://meow.nekocap.com/parse"
+    app_id: str = "nekocap042"
+
+
 # Sections a profile may change. The rest describe the user, not the transcript.
 PROFILE_SECTIONS = ("transcription", "parsing", "mistimed_lines", "mistimed_segs", "anomalies")
 
@@ -143,6 +153,7 @@ class Settings(BaseModel):
     anomalies: AnomalySettings = AnomalySettings()
     translation: TranslationSettings = TranslationSettings()
     keyterms: KeytermSettings = KeytermSettings()
+    nekocap: NekoCapSettings = NekoCapSettings()
     # Scribe v1 was tuned with a low diarization threshold; newer models use the service's default.
     profiles: list[Profile] = [Profile(model="scribe_v1",
                                        settings={"transcription": {"options": {"diarization_threshold": 0.1}}})]

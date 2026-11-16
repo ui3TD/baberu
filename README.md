@@ -94,9 +94,21 @@ The result's path is printed on stdout and progress on stderr. Use `--dry-run` t
 
 Keep the `.baberu` folder if you might change anything later, since it holds the paid transcription and translation. `--clean` deletes it after a successful run.
 
+### Workflows
+
+**Run everything.** `baberu URL` downloads, transcribes, fixes timing, translates and pads. Add `--nekocap` to upload the result when it's done. Add `-y` when nobody is at the keyboard.
+
+**Review as you go.** baberu pauses after writing `keyterms.txt` (before transcribing) and `context.txt` (before translating) so you can edit them. You can also stop at any stage (`-s`, `-c`, `-f`), edit what's in the work folder, and run again: finished work is reused.
+
+**Correct the result.** Two ways:
+- Edit `show.en.ass` by hand. baberu keeps your edits, and a later run that has nothing new for the file leaves it alone. A run that would change the file stops first; use `--overwrite` to replace it.
+- Translate some lines again: `baberu show.mp4 -t --lines 67-68`. Only those lines change, inside the job's translation, and the result is rebuilt. The line numbers are the result's.
+
+**Publish.** `baberu publish URL` (or the video, or `show.en.ass`) uploads the result exactly as it is, hand edits included, and runs nothing else. See [Uploading to NekoCap](#uploading-to-nekocap).
+
 ### Stages
 
-Naming a stage runs that stage and anything it depends on, so `baberu show.mp4 -t` extracts, transcribes and converts first. `retranscribe`, `fix` and `pad` run only when named or on a full run.
+Naming a stage runs that stage and anything it depends on, so `baberu show.mp4 -t` extracts, transcribes and converts first. A job keeps its own chain: once a full run has made it, `-t` alone still translates the retranscribed, fixed subtitles and pads the result, reusing all of that. On a new job, `retranscribe`, `fix` and `pad` run only when named or on a full run.
 
 | Option | Stage |
 |---|---|
@@ -131,13 +143,13 @@ Each of these turns on the stage that uses it. Audio and video with the same nam
 | `--overwrite` | Replace an existing file baberu didn't write |
 | `--clean` | Delete the work folder after a successful run |
 
-baberu never overwrites its input, and it won't replace a file it didn't write, including a result you've since edited, without `--overwrite`.
+baberu never overwrites its input. It won't replace a file it didn't write, including a result you've since edited, without `--overwrite`; when it has nothing new for an edited result, it keeps your version.
 
 ### Reusing and redoing work
 
-A second run reuses earlier work and says so. Naming a file means starting from it. `fix` and `pad` always run again because they're free.
+A second run reuses earlier work and says so, `fix` and `pad` included when their input and settings haven't changed. Naming a file means starting from it. A URL whose download is already in the folder is planned from that download, so `--dry-run` shows the whole plan.
 
-If paid work no longer matches, because the subtitles or model changed, baberu stops before spending anything and tells you to redo it:
+If paid work no longer matches, because the subtitles or model changed, baberu stops before spending anything (a dry run reports it too) and tells you to redo it:
 
 ```bash
 baberu show.mp4 --redo translate
@@ -151,8 +163,9 @@ baberu show.mp4 --redo translate
 |---|---|
 | `--model NAME` | Translation model |
 | `--lang-from CODE`, `--lang-to CODE` | Source and target language |
-| `--lines 5-20` | Work on only these lines, leaving the rest unchanged |
+| `--lines 5-20` | Work on only these lines, leaving the rest unchanged. With `-t` on a job that has a translation, those lines are translated again in place; otherwise the result is a separate `.L5-20` file |
 | `--dry-run` | Show the plan without doing or spending anything |
+| `-y`, `--yes` | Don't pause to review the generated keyterms or context. Without a keyboard, baberu carries on by itself anyway |
 | `--diagnose` | Report a transcript's timing problems and save `health.json` in the work folder (free) |
 | `--config FILE` | Use this config file |
 | `--debug` | Show detailed logs, and a traceback on errors |
@@ -203,6 +216,22 @@ baberu v3/show.baberu/transcript.json --diagnose
 ```
 
 Conversion fixes smears and collapses for free; `retranscribe` sends whatever it couldn't fix, and runs of very short lines, to be transcribed again. Limits live under `anomalies:` in the config, request parameters under `transcription.options`, and settings for one model or language under `profiles:`. A job remembers which model and options made its transcript and stops if they change; use `--redo transcribe`.
+
+### Uploading to NekoCap
+
+`baberu publish` uploads the finished translation of a YouTube video to your [NekoCap](https://nekocap.com) account, exactly as the file is on disk. It runs no stages and changes no files. Give it the video's URL, the downloaded video, or the result itself:
+
+```bash
+baberu publish "https://www.youtube.com/watch?v=..." --dry-run   # show the file, privacy and title; check the login
+baberu publish show.en.ass --unlisted
+baberu publish show.en.ass --title "Mirinya, First Time at Hidakaya"
+```
+
+The title is translated with the translation model and the job's `context.txt`, so names are spelled as in the subtitles. It is kept for later uploads: `--title` sets it yourself, `--retitle` translates it again. Uploads are public by default (`nekocap.privacy` in the config); `--unlisted` or `--public` override that. Publishing again replaces your earlier caption for that video and language, and does nothing if the file, title and privacy haven't changed.
+
+`baberu URL --nekocap` (or `--nekocap-unlisted`) does a full run, or the stages you name, then publishes the same way.
+
+baberu uses your browser's NekoCap login. Run `baberu-nekocap-login`: it opens nekocap.com and puts a line on your clipboard. Sign in if needed, press F12, paste it into the Console and press Enter. Then press Enter in the terminal. It checks the login and saves it to `.env` as `NEKOCAP_SESSION_TOKEN`. When the login stops working, baberu says so; run it again. A dry run checks the login without uploading.
 
 ### Upgrading from earlier versions
 

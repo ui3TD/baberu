@@ -1,13 +1,14 @@
 from typing import Any, Tuple
 from pathlib import Path
 import logging
+import re
 import shutil
 import tempfile
 
 import yt_dlp
 import ffmpeg
 
-from baberu.tools.file_utils import atomic_path
+from baberu.tools.file_utils import FileKind, atomic_path, kind_of
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,29 @@ def probe_url(url: str) -> dict[str, Any]:
     """Reads a URL's title and duration without downloading it."""
     with yt_dlp.YoutubeDL(_download_options()) as ydl:
         return ydl.extract_info(url, download=False) or {}
+
+
+_YOUTUBE_ID = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
+
+
+def video_id(url: str) -> str:
+    """The video's id, read from a YouTube URL, or asked of yt-dlp for anything else."""
+    match = _YOUTUBE_ID.search(url)
+    if match:
+        return match.group(1)
+    return str(probe_url(url).get("id") or "")
+
+
+def find_download(url: str, folder: Path) -> Path | None:
+    """An earlier download of this URL in `folder`, found by the [id] that DOWNLOAD_NAME puts in its name."""
+    identifier = video_id(url)
+    if not identifier or not folder.is_dir():
+        return None
+    for entry in sorted(folder.iterdir()):
+        if entry.is_file() and entry.stem.endswith(f"[{identifier}]") \
+                and kind_of(entry) in (FileKind.VIDEO, FileKind.AUDIO):
+            return entry
+    return None
 
 
 def duration_seconds(media_file: Path) -> float | None:

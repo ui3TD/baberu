@@ -12,6 +12,7 @@ import pydantic
 from baberu import pipeline
 from baberu.errors import BaberuError
 from baberu.job import enclosing_job
+from baberu.publish import publish
 from baberu.settings import Settings
 from baberu.setup import args_setup, config_setup, logging_setup
 from baberu.subtitling.types import LineRange
@@ -47,6 +48,7 @@ class RunRequest:
     retranscribe: bool = False
     retranscribe_required: bool = False
     fix: bool = False
+    fix_named: bool = False  # -f was given, not just implied by a full run
     translate: bool = False
     pad: bool = False
     hardcode: bool = False
@@ -56,9 +58,12 @@ class RunRequest:
     dry_run: bool = False
     clean: bool = False
     redo: set[str] = field(default_factory=set)
+    nekocap: bool = False
+    nekocap_privacy: str | None = None  # overrides the config for this run
     keyterm_lists: list[str] = field(default_factory=list)
     use_keyterms: bool = True
     keyterms_dir: Path | None = None
+    review: bool = True  # pause so generated keyterms and context can be edited
 
 
 def _existing_file(value: str, description: str) -> Path:
@@ -132,7 +137,10 @@ def _reject_impossible_stages(args, kind: FileKind) -> None:
 
 
 def _choose_stages(args, request: RunRequest, kind: FileKind) -> None:
-    """Applies the default of running everything, then adds what each stage depends on."""
+    """Applies the default of running everything, then adds what each stage depends on.
+
+    --nekocap doesn't count as naming a stage: on its own it means a full run, then an upload.
+    """
     named_a_stage = any([
         args.extract, args.speech_to_text, args.convert, args.retranscribe, args.fix, args.translate, args.pad,
         args.hardcode, args.audio_to_video, args.audio, args.context, args.subs, args.video,
@@ -150,7 +158,11 @@ def _choose_stages(args, request: RunRequest, kind: FileKind) -> None:
     request.retranscribe = full_run or args.retranscribe or bool(args.audio) or "retranscribe" in redo
     request.retranscribe_required = args.retranscribe or bool(args.audio) or "retranscribe" in redo
     request.fix = full_run or args.fix
-    request.translate = full_run or args.translate or bool(args.context) or bool(redo & {"translate", "context"})
+    request.fix_named = args.fix
+    request.nekocap = args.nekocap or args.nekocap_unlisted
+    request.nekocap_privacy = "unlisted" if args.nekocap_unlisted else None
+    request.translate = full_run or args.translate or bool(args.context) or bool(redo & {"translate", "context"}) \
+        or request.nekocap
     request.pad = full_run or args.pad
     request.hardcode = args.hardcode or bool(args.subs) or bool(args.video)
 
@@ -210,6 +222,7 @@ def build_request(args, settings: Settings) -> RunRequest:
         clean=args.clean,
         keyterm_lists=list(args.keyterms),
         use_keyterms=settings.keyterms.enabled and not args.no_keyterms,
+        review=not args.yes,
     )
     kind = _read_source(args, request)
     _read_extra_inputs(args, request)
@@ -242,7 +255,7 @@ def _tolerate_unicode_output() -> None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
 
 
-def _run(args) -> None:
+def _load_settings(args) -> Settings:
     config_path = Path(args.config) if args.config else None
     if config_path and not config_path.is_file():
         raise BaberuError(f"Config file does not exist: {args.config}")
@@ -258,7 +271,33 @@ def _run(args) -> None:
         log_to_file=settings.logging.log_to_file,
         log_dir=Path(log_dir_text) if log_dir_text else None,
     )
+    return settings
 
+
+def _publish(args) -> None:
+    settings = _load_settings(args)
+    source_dir = None
+    if not is_url(args.source_file_path):
+        source = Path(args.source_file_path)
+        enclosing = enclosing_job(source)
+        source_dir = enclosing.parent if enclosing else source.parent
+    lang_from = args.lang_from or settings.transcription.default_lang_from
+    request = publish.PublishRequest(
+        source=args.source_file_path,
+        output_dir=Path(args.directory or environ.get("BABERU_DIR") or settings.working_dir or source_dir or Path.cwd()),
+        lang_from=lang_from,
+        lang_to=args.lang_to or settings.translation.default_lang_to,
+        privacy="unlisted" if args.unlisted else ("public" if args.public else None),
+        title=args.title,
+        retitle=args.retitle,
+        dry_run=args.dry_run,
+    )
+    publish.publish_command(request, config_setup.apply_profiles(settings, lang_from))
+
+
+def _run(args) -> None:
+    config_path = Path(args.config) if args.config else None
+    settings = _load_settings(args)
     request = build_request(args, settings)
     lists_dir = settings.keyterms.lists_dir
     request.keyterms_dir = Path(lists_dir) if lists_dir else config_setup.config_dir(config_path) / "keyterms"
@@ -280,10 +319,14 @@ def _describe(error: Exception) -> str:
 def main() -> None:
     dotenv.load_dotenv()
     _tolerate_unicode_output()
-    args = args_setup.init_parser().parse_args()
+    argv = sys.argv[1:]
+    if argv[:1] == ["publish"]:
+        args, command = args_setup.init_publish_parser().parse_args(argv[1:]), _publish
+    else:
+        args, command = args_setup.init_parser().parse_args(argv), _run
 
     try:
-        _run(args)
+        command(args)
     except KeyboardInterrupt:
         print("\nInterrupted. Finished work is saved; run the same command to resume.", file=sys.stderr)
         sys.exit(130)

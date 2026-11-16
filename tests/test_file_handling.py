@@ -1,5 +1,6 @@
 """How baberu behaves from the command line: which files it reads, writes and refuses."""
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -535,6 +536,41 @@ def test_context_prompt_is_skipped_without_a_terminal(workspace, monkeypatch):
     assert (workspace / "video.en.ass").exists()
 
 
+def test_context_prompt_without_a_keyboard_carries_on(workspace, monkeypatch):
+    """isatty() is true for NUL on Windows, so input() can still hit end of input."""
+    from baberu.setup import config_setup
+
+    settings = config_setup.load_config()
+    settings["translation"]["confirm_auto_context"] = True
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+
+    def end_of_input(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", end_of_input)
+
+    run_cli(monkeypatch, workspace / "video.ass", "-t")
+
+    assert (workspace / "video.en.ass").exists()
+
+
+def test_yes_skips_the_context_prompt(workspace, monkeypatch):
+    from baberu.setup import config_setup
+
+    settings = config_setup.load_config()
+    settings["translation"]["confirm_auto_context"] = True
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+
+    def no_input(*args):
+        raise AssertionError("should not prompt")
+
+    monkeypatch.setattr("builtins.input", no_input)
+
+    run_cli(monkeypatch, workspace / "video.ass", "-t", "--yes")
+
+    assert (workspace / "video.en.ass").exists()
+
+
 def test_dry_run_writes_nothing_and_spends_nothing(media, workspace, monkeypatch, capsys, fake_llms):
     before = sorted(p.name for p in workspace.iterdir())
 
@@ -553,6 +589,82 @@ def test_dry_run_shows_reuse(media, workspace, monkeypatch, capsys):
     run_cli(monkeypatch, workspace / "show.mp4", "--dry-run")
 
     assert "reuse" in capsys.readouterr().err
+
+
+# --- Following the job's own chain ---
+
+def test_translating_again_reads_the_subtitles_a_full_run_made(media, workspace, monkeypatch, fake_llms, capsys):
+    run_cli(monkeypatch, workspace / "show.mp4")
+    calls = len(fake_llms["main"].calls)
+    capsys.readouterr()
+
+    run_cli(monkeypatch, workspace / "show.mp4", "-t", "--dry-run")
+    plan = capsys.readouterr().err
+    run_cli(monkeypatch, workspace / "show.mp4", "-t")
+
+    assert "fix" in plan and "pad" in plan          # the job's chain, though only -t was asked for
+    assert len(fake_llms["main"].calls) == calls     # nothing translated again
+
+
+def test_a_second_full_run_reuses_fix_and_pad(media, workspace, monkeypatch, capsys):
+    run_cli(monkeypatch, workspace / "show.mp4")
+    capsys.readouterr()
+
+    run_cli(monkeypatch, workspace / "show.mp4", "--dry-run")
+
+    plan = capsys.readouterr().err
+    assert re.search(r"fix\s+reuse", plan) and re.search(r"pad\s+reuse", plan)
+
+
+def test_an_edited_result_is_kept_when_nothing_changed(media, workspace, monkeypatch):
+    run_cli(monkeypatch, workspace / "show.mp4")
+    result = workspace / "show.en.ass"
+    edited = result.read_text(encoding="utf-8-sig") + "\n; my edit\n"
+    result.write_text(edited, encoding="utf-8")
+
+    run_cli(monkeypatch, workspace / "show.mp4")
+
+    assert result.read_text(encoding="utf-8") == edited
+
+
+def test_a_dry_run_reports_a_stale_translation(workspace, monkeypatch, capsys, fake_llms):
+    source = workspace / "video.ass"
+    run_cli(monkeypatch, source, "-t", "--context", workspace / "ctx.txt")
+    sub_utils.write(make_subs([(0, 5000, "changed")]), source)
+    calls = len(fake_llms["main"].calls)
+
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, source, "-t", "--context", workspace / "ctx.txt", "--dry-run")
+
+    assert "made from different subtitles" in capsys.readouterr().err
+    assert len(fake_llms["main"].calls) == calls
+
+
+def test_lines_correct_the_translation_in_place(workspace, monkeypatch, fake_llms):
+    source = workspace / "video.ass"
+    run_cli(monkeypatch, source, "-t", "-p", "--context", workspace / "ctx.txt")
+    before = texts(workspace / "video.en.ass")
+    fake_llms["main"] = FakeLLM(lambda prompt: translate_all(prompt).replace("T:", "NEW:"))
+
+    run_cli(monkeypatch, source, "-t", "--lines", "2-3", "--context", workspace / "ctx.txt")
+
+    after = texts(workspace / "video.en.ass")
+    assert after[1:3] == ["NEW:line1", "NEW:line2"]
+    assert after[:1] + after[3:] == before[:1] + before[3:]
+    assert not list(workspace.glob("*.L2-3.ass"))
+
+
+def test_a_url_dry_run_plans_an_earlier_download(media, workspace, monkeypatch, capsys):
+    video = workspace / "show [abcdefghijk].mp4"
+    (workspace / "show.mp4").rename(video)
+    run_cli(monkeypatch, video)
+    capsys.readouterr()
+    monkeypatch.setattr("baberu.tools.av_utils.probe_url", lambda url: pytest.fail("should not probe"))
+
+    run_cli(monkeypatch, "https://www.youtube.com/watch?v=abcdefghijk", "-d", workspace, "--dry-run")
+
+    plan = capsys.readouterr().err
+    assert "Plan for show [abcdefghijk].mp4" in plan and "reuse" in plan
 
 
 # --- File types and job names ---

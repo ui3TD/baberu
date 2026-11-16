@@ -135,6 +135,16 @@ class Job:
             return base / self.lang_to / stage.value
         return base / stage.value
 
+    @property
+    def source_info_path(self) -> Path:
+        """The video's yt-dlp details: title, channel, tags, description."""
+        return self.folder / "source.json"
+
+    @property
+    def nekocap_record_path(self) -> Path:
+        """What was last uploaded to NekoCap for this language."""
+        return self.folder / self.lang_to / "nekocap.json"
+
     def audio_path(self, extension: str) -> Path:
         return self.folder / f"audio.{extension}"
 
