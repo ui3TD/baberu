@@ -1,4 +1,3 @@
-import json
 from types import SimpleNamespace
 
 from baberu.providers.llm.openai import GPTProvider
@@ -8,10 +7,7 @@ from test_factory_and_parsers import scribe_response
 
 
 def test_scribe_tolerates_missing_speaker():
-    data = scribe_response()
-    content = json.loads(data["additional_formats"][0]["content"])
-    content["segments"][0]["words"][0]["speaker_id"] = None
-    data["additional_formats"][0]["content"] = json.dumps(content)
+    data = scribe_response(speaker=None)
 
     result = ScribeProvider.parse(data)
 

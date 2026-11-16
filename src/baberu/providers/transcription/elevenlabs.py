@@ -1,7 +1,6 @@
 from elevenlabs.client import ElevenLabs
 from elevenlabs.types import (
     SpeechToTextChunkResponseModel, 
-    SpeechToTextWordResponseModel, 
     ExportOptions_SegmentedJson, 
 )
 
@@ -12,6 +11,9 @@ from io import BytesIO
 from itertools import groupby
 from typing import Any
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ScribeProvider(TranscriptionProvider):
     def __init__(self, api_key: str, model: str):
@@ -57,67 +59,69 @@ class ScribeProvider(TranscriptionProvider):
     
     @staticmethod
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
-        transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
+        """Reads a response. Tokens come from `words`, which keeps spacing; segments only mark the breaks.
 
-        is_segmented_json = False
+        segmented_json drops spacing tokens, so its own words would run English
+        together ("Thanks.Okay.So,"). When it doesn't line up with `words`, the
+        words are grouped by speaker instead.
+        """
+        transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
+        words = [ScribeProvider._word(word.model_dump()) for word in transcription.words]
+
+        segment_sizes = ScribeProvider._segment_sizes(transcription)
+        segments = ScribeProvider._split_by_sizes(words, segment_sizes) if segment_sizes else None
+        if segments is None:
+            if segment_sizes:
+                logger.warning("segmented_json doesn't match the word list; grouping words by speaker instead.")
+            segments = [TranscribedSegment(words=list(group)) for _, group in groupby(words, key=lambda w: w.speaker)]
+
+        return TranscriptionResult(segments=segments, language=transcription.language_code)
+
+    @staticmethod
+    def _word(data: dict[str, Any]) -> TranscribedWord:
+        return TranscribedWord(
+            text=data.get("text") or "",
+            start=data.get("start"),
+            end=data.get("end"),
+            type=data.get("type") or "word",
+            speaker=data.get("speaker_id") or "Default",
+            confidence=data.get("logprob"),  # 0.0 is a real value; only a missing one is None
+        )
+
+    @staticmethod
+    def _segment_sizes(transcription: SpeechToTextChunkResponseModel) -> list[tuple[int, list[str]]]:
+        """The non-spacing token texts of each segment in segmented_json, if it was returned."""
         formats_list = transcription.additional_formats or []
-        segmented_format = next((f for f in formats_list if f.requested_format == "segmented_json"), None)
-        if segmented_format:
-            content_str = segmented_format.content
-            if not content_str or not isinstance(content_str, str):
-                is_segmented_json = False
-            else:
-                is_segmented_json = True
+        segmented = next((f for f in formats_list if f and f.requested_format == "segmented_json"), None)
+        if not segmented or not isinstance(segmented.content, str) or not segmented.content:
+            return []
+        sizes = []
+        for segment in json.loads(segmented.content).get("segments", []):
+            texts = [w.get("text") or "" for w in segment.get("words", []) if w.get("type") != "spacing"]
+            sizes.append((len(texts), texts))
+        return sizes
+
+    @staticmethod
+    def _split_by_sizes(words: list[TranscribedWord], sizes: list[tuple[int, list[str]]]) -> list[TranscribedSegment] | None:
+        """Cuts `words` where segmented_json breaks. Spacing stays with the segment before it."""
+        spoken = [w for w in words if w.type != "spacing"]
+        if [w.text for w in spoken] != [text for _, texts in sizes for text in texts]:
+            return None
 
         segments: list[TranscribedSegment] = []
-
-        if is_segmented_json:
-            segmented_data = json.loads(content_str)
-            
-            for segment_data in segmented_data.get("segments", []):
-                words_data_list = segment_data.get("words", [])
-                
-                transcribed_words = [
-                    TranscribedWord(
-                        text=word_data.get("text", ""),
-                        start=word_data.get("start", 0.0),
-                        end=word_data.get("end", 0.0),
-                        type=word_data.get("type", "word"),
-                        speaker=word_data.get("speaker_id") or "Default",
-                        confidence=word_data.get("logprob")
-                    )
-                    for word_data in words_data_list
-                ]
-                
-                segment = TranscribedSegment(
-                    words=transcribed_words
-                )
-                segments.append(segment)
-        else:   
-            grouped_words = groupby(transcription.words, key=lambda w: w.speaker_id)
-            segments: list[TranscribedSegment] = []
-            for speaker_id, words_group in grouped_words:
-                words_list: list[SpeechToTextWordResponseModel] = list(words_group)
-                
-                # Convert to TranscribedWord objects
-                transcribed_words = [
-                    TranscribedWord(
-                        text=word.text,
-                        start=word.start or 0.0,
-                        end=word.end or 0.0,
-                        type=word.type,
-                        speaker=speaker_id or "Default",
-                        confidence=word.logprob or None
-                    )
-                    for word in words_list
-                ]
-                
-                segment = TranscribedSegment(
-                    words=transcribed_words
-                )
-                segments.append(segment)
-        
-        return TranscriptionResult(segments=segments)
+        current: list[TranscribedWord] = []
+        remaining = iter(size for size, _ in sizes if size)
+        target = next(remaining, 0)
+        counted = 0
+        for word in words:
+            if word.type != "spacing" and counted == target and current:
+                segments.append(TranscribedSegment(words=current))
+                current, counted, target = [], 0, next(remaining, 0)
+            current.append(word)
+            counted += word.type != "spacing"
+        if current:
+            segments.append(TranscribedSegment(words=current))
+        return segments
     
     @staticmethod
     def validate(json_data: dict[str, Any]) -> dict[str, Any]:

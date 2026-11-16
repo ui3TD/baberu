@@ -5,7 +5,6 @@ import json
 from pysubs2 import SSAFile, SSAEvent
 from typing import Any
 from pathlib import Path
-import re
 import logging
 
 import pysubs2
@@ -14,10 +13,11 @@ from baberu.providers.factory import AIToolFactory
 from baberu.providers.llm.base import LLMProvider
 from baberu.providers.transcription.base import TranscriptionResult, TranscribedSegment, TranscribedWord
 from baberu.constants import CONTINUE_FLAG
-from baberu.settings import ParsingSettings
+from baberu.settings import AnomalySettings, ParsingSettings
 from baberu.subtitling.types import SubtitleLine
 from baberu.tools.file_utils import atomic_write_text
-from baberu.transcription.health import count_repair
+from baberu.transcription.health import count_repair, letters
+from baberu.transcription.normalize import normalize
 
 logger = logging.getLogger(__name__)
 
@@ -60,30 +60,28 @@ def _split_asker(parsing: ParsingSettings, split_cache: dict[str, str] | None) -
 
 def convert_transcript_to_subs(transcript: TranscriptionResult,
                                parsing: ParsingSettings,
-                               split_cache: dict[str, str] | None = None) -> SSAFile:
+                               split_cache: dict[str, str] | None = None,
+                               limits: AnomalySettings | None = None) -> SSAFile:
     """Turns word-level timings into subtitle lines using delimiters and length limits.
 
+    The transcript is normalized first, into a copy, so the caller's is unchanged.
     `split_cache` holds the parsing model's answers by question; pass the same dict
     each time so converting again neither costs money nor changes the lines.
     """
     get_splitter = _split_asker(parsing, split_cache)
-    transcript = transcript.model_copy(deep=True)  # Line building edits words; the caller's stay as they were.
+    transcript = normalize(transcript, limits)
     all_lines: list[SubtitleLine] = []
 
     for segment in transcript.segments:
-        segment.words = [
-            word for word in segment.words if word.type in ("word", "spacing")
-        ]
-
-        if segment.words:
-            all_lines.extend(_delimit_segment(segment, parsing, get_splitter))
+        all_lines.extend(_delimit_segment(segment, parsing, get_splitter))
 
     sub_file: SSAFile = SSAFile()
 
     for line in all_lines:
+        start = pysubs2.time.times_to_ms(s=line.start)
         event = SSAEvent(
-            start=pysubs2.time.times_to_ms(s=line.start),
-            end=pysubs2.time.times_to_ms(s=line.end),
+            start=start,
+            end=max(pysubs2.time.times_to_ms(s=line.end), start + 1),  # never zero or negative length
             text=line.text,
             style="Default"
         )
@@ -103,12 +101,15 @@ def _delimit_segment(segment: TranscribedSegment,
     sub_lines: list[SubtitleLine] = []
     current_words: list[TranscribedWord] = []
 
+    def finish_line(words: list[TranscribedWord]) -> None:
+        sub_line = _create_subtitle_line(words, remove_text, clean=True)
+        if letters(sub_line.text):  # Lines of only punctuation, like "。」" or "...", are dropped
+            sub_lines.append(sub_line)
+
     for word in segment.words:
         # Break on time gap
         if current_words and word.start - current_words[-1].end > parsing.max_time_gap_sec:
-            sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
-            if sub_line.text not in soft_delimiters + delimiters:
-                sub_lines.append(sub_line)
+            finish_line(current_words)
             current_words = []
 
         current_words.append(word)
@@ -123,8 +124,7 @@ def _delimit_segment(segment: TranscribedSegment,
             # Include the delimiter in prev group
             current_words.pop()
             current_words[-1].text = current_words[-1].text + word.text[0]
-            sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
-            sub_lines.append(sub_line)
+            finish_line(current_words)
 
             # Start new group
             remaining_word = word.model_copy()
@@ -133,11 +133,7 @@ def _delimit_segment(segment: TranscribedSegment,
             current_text = remaining_word.text
 
         # Break on optional delimiters
-        elif any(word.text.endswith(d) for d in delimiters):
-            force_break = True
-
-        # Break on audio events
-        elif word.type == "audio_event":
+        elif _ends_with(word.text, delimiters):
             force_break = True
 
         # Break on hard max limit
@@ -149,8 +145,7 @@ def _delimit_segment(segment: TranscribedSegment,
                 words_to_keep = current_words[:-carryover_word_count]
                 if words_to_keep:
                     words_to_keep[-1].text = words_to_keep[-1].text + f"{CONTINUE_FLAG}"
-                    sub_line = _create_subtitle_line(words_to_keep, remove_text, clean=True)
-                    sub_lines.append(sub_line)
+                    finish_line(words_to_keep)
 
                 # Start the new group with words carried over
                 current_words = current_words[-carryover_word_count:]
@@ -160,23 +155,16 @@ def _delimit_segment(segment: TranscribedSegment,
                 force_break = True
 
         # Break on soft delimiters if over soft max limit
-        elif len(current_text) > parsing.soft_max_chars and any(word.text.endswith(d) for d in soft_delimiters):
+        elif len(current_text) > parsing.soft_max_chars and _ends_with(word.text, soft_delimiters):
             force_break = True
 
-        if force_break:
-            if current_words:
-                # Skip lines containing only a delimiter
-                sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
-                if sub_line.text not in soft_delimiters + delimiters:
-                    sub_lines.append(sub_line)
-
-                current_words = []
+        if force_break and current_words:
+            finish_line(current_words)
+            current_words = []
 
     # Add any remaining words
     if current_words:
-        sub_line = _create_subtitle_line(current_words, remove_text, clean=True)
-        if sub_line.text not in soft_delimiters + delimiters:
-            sub_lines.append(sub_line)
+        finish_line(current_words)
 
     return sub_lines
 
@@ -226,6 +214,10 @@ def _words_in_second_line(words: list[TranscribedWord], text: str, response: str
             return count
     raise ValueError("split does not fall on a word boundary")
 
+def _ends_with(text: str, delimiters: list[str]) -> bool:
+    """Whether a word ends a phrase. A space after the word doesn't hide its punctuation."""
+    return any(text.endswith(d) or (d.strip() and text.rstrip().endswith(d)) for d in delimiters)
+
 def _create_subtitle_line(words: list[TranscribedWord], remove_text: list[str], clean: bool = False) -> SubtitleLine:
     """Combines a group of word objects into a single line dictionary."""
     merged_text = "".join(w.text for w in words)
@@ -256,12 +248,6 @@ def _clean_subtitle_line(line: SubtitleLine, remove_text: list[str]) -> Subtitle
 
     # Trim white space
     line_text = line_text.strip()
-
-    # Truncate repeated characters (5+ occurrences)
-    truncated = re.sub(r'(.{1,6}?)(\1{4,})', r'\1\1\1', line_text)
-    if truncated != line_text:
-        count_repair("repeat_truncated")
-    line_text = truncated
 
     line.text = line_text
     return line

@@ -41,6 +41,7 @@ class Anomaly:
     first: int          # index of the first token involved, in token order
     last: int
     detail: str = ""
+    unit: int = 0       # for a loop, how many tokens repeat
 
 
 # --- Tokens ---
@@ -154,7 +155,7 @@ def find_anomalies(transcript: TranscriptionResult, limits: AnomalySettings) -> 
     found = [
         *_smears(all_tokens, limits, median),
         *_collapses(all_tokens, limits, median),
-        *_loops(all_tokens, limits),
+        *find_loops(all_tokens, limits),
         *_disorder(all_tokens, limits),
         *_low_confidence(all_tokens, limits),
     ]
@@ -204,7 +205,7 @@ def _loop_text(word: TranscribedWord) -> str:
     return word.text.strip().casefold()
 
 
-def _loops(all_tokens: list[TranscribedWord], limits: AnomalySettings) -> Iterator[Anomaly]:
+def find_loops(all_tokens: list[TranscribedWord], limits: AnomalySettings) -> Iterator[Anomaly]:
     """The same few tokens over and over, a common way for speech models to fail.
 
     Numbers are never loops: "1000000" may arrive as seven tokens.
@@ -226,7 +227,7 @@ def _loops(all_tokens: list[TranscribedWord], limits: AnomalySettings) -> Iterat
             if repeats >= limits.loop_min_repeats:
                 first, last = indices[position], indices[position + repeats * size - 1]
                 yield Anomaly("loop", all_tokens[first].start, all_tokens[last].end, first, last,
-                              f"{joined!r} x{repeats}")
+                              f"{joined!r} x{repeats}", unit=size)
                 position += repeats * size - 1
                 break
         position += 1

@@ -1,15 +1,20 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Literal
+from typing import List
 import pydantic
 import logging
 from typing import Any
 
 class TranscribedWord(pydantic.BaseModel):
+    """One token as the service sent it. Times can be missing; normalize fills them in.
+
+    `type` is usually "word", "spacing" or "audio_event", but any other type a
+    service adds is kept rather than failing the whole transcript.
+    """
     text: str
-    start: float
-    end: float
-    type: Literal["word", "audio_event", "spacing"] = "word"
+    start: float | None
+    end: float | None
+    type: str = "word"
     speaker: str = "Default"
     confidence: float | None = None
     
