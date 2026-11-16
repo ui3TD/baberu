@@ -40,8 +40,8 @@ def init_parser() -> ArgumentParser:
 
     options = parser.add_argument_group('options')
     options.add_argument('--model', help='Translation model')
-    options.add_argument('--keyterms', action='append', default=[], metavar='LIST',
-                         help='Add a keyterm list (a name in the keyterms folder, or a file) to help transcription')
+    options.add_argument('--keyterms', metavar='FILE',
+                         help="Add the terms in this keyterms file to the channel's, to help transcription")
     options.add_argument('--no-keyterms', action='store_true', help="Don't send keyterms to the transcription service")
     options.add_argument('--lang-from', metavar='CODE', help='Language of the source media')
     options.add_argument('--lang-to', metavar='CODE', help='Language to translate into')

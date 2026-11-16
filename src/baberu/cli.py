@@ -60,7 +60,7 @@ class RunRequest:
     redo: set[str] = field(default_factory=set)
     nekocap: bool = False
     nekocap_privacy: str | None = None  # overrides the config for this run
-    keyterm_lists: list[str] = field(default_factory=list)
+    keyterms_file: Path | None = None  # terms added to the channel's, from --keyterms
     use_keyterms: bool = True
     keyterms_dir: Path | None = None
     review: bool = True  # pause so generated keyterms and context can be edited
@@ -220,7 +220,7 @@ def build_request(args, settings: Settings) -> RunRequest:
         overwrite=args.overwrite,
         dry_run=args.dry_run,
         clean=args.clean,
-        keyterm_lists=list(args.keyterms),
+        keyterms_file=Path(args.keyterms) if args.keyterms else None,
         use_keyterms=settings.keyterms.enabled and not args.no_keyterms,
         review=not args.yes,
     )
@@ -299,8 +299,8 @@ def _run(args) -> None:
     config_path = Path(args.config) if args.config else None
     settings = _load_settings(args)
     request = build_request(args, settings)
-    lists_dir = settings.keyterms.lists_dir
-    request.keyterms_dir = Path(lists_dir) if lists_dir else config_setup.config_dir(config_path) / "keyterms"
+    terms_dir = settings.keyterms.dir
+    request.keyterms_dir = Path(terms_dir) if terms_dir else config_setup.config_dir(config_path) / "keyterms"
     settings = config_setup.apply_profiles(settings, request.lang_from)
     if args.diagnose:
         pipeline.diagnose(request, settings)

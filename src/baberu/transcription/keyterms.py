@@ -2,16 +2,21 @@
 
 Terms come from three places, most specific first:
   1. A model reading the video's title, description and tags (optional, paid).
-  2. Local lists: one term per line in <lists_dir>/<name>.txt, picked per channel or with --keyterms.
+  2. The channel's file: <dir>/<name>.yaml, the one name config.yaml maps the channel to,
+     plus any file given with --keyterms.
   3. The video's own tags, and phrases quoted in its title.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Iterable
+import hashlib
 import json
 import logging
 import re
+
+import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from baberu.errors import BaberuError
 from baberu.providers.llm.base import LLMProvider
@@ -30,7 +35,6 @@ METADATA_FIELDS = ("id", "title", "channel", "channel_id", "uploader", "tags", "
 
 # Phrases set off in a title: 『とくべチューハイ』, 【乾杯】, 「...」.
 _QUOTED = re.compile(r"[『「【《〈\"]([^』」】》〉\"]{2,50})[』」】》〉\"]")
-_LIST_COMMENT = "#"
 
 
 def clean(terms: Iterable[str], max_terms: int = 100) -> list[str]:
@@ -95,30 +99,49 @@ def from_metadata(info: dict[str, Any]) -> list[str]:
     return [*quoted, *(info.get("tags") or [])]
 
 
-# --- Local lists ---
+# --- The channel's file ---
 
-def read_list(path: Path) -> list[str]:
-    """One term per line. Text after # is a comment."""
-    terms = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        term = line.split(_LIST_COMMENT, 1)[0].strip()
-        if term:
-            terms.append(term)
+class MissingChannelTerms(BaberuError):
+    """The channel has no keyterms file, so nothing is transcribed until one is made."""
+
+
+class ChannelTerms(BaseModel):
+    """keyterms/<name>.yaml: the channel, and every term used for its videos."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    channel_id: str
+    channel: str
+    terms: list[str]
+
+
+def channel_file(info: dict[str, Any], channels: dict[str, str], terms_dir: Path) -> Path:
+    """The one file the config maps the video's channel to. Raises MissingChannelTerms if there is none."""
+    channel_id = info.get("channel_id") or ""
+    channel = (info.get("channel") or info.get("uploader") or "").strip() or "This channel"
+    name = channels.get(channel_id)
+    if not name:
+        raise MissingChannelTerms(
+            f"{channel} ({channel_id}) has no keyterms file. Add `{channel_id}: <name>` under "
+            f"keyterms.channels in the config, and write {terms_dir / '<name>.yaml'}.")
+    path = terms_dir / f"{name}.yaml"
+    if not path.is_file():
+        raise MissingChannelTerms(f"{channel} ({channel_id}) is mapped to '{name}', but {path} doesn't exist.")
+    return path
+
+
+def load_channel(path: Path, channel_id: str | None = None) -> ChannelTerms:
+    """Reads a keyterms file. With channel_id, it must be that channel's file."""
+    try:
+        terms = ChannelTerms.model_validate(yaml.safe_load(path.read_text(encoding="utf-8-sig")))
+    except (OSError, yaml.YAMLError, ValidationError) as error:
+        raise BaberuError(f"Keyterms file {path} is not valid: {error}") from error
+    if channel_id and terms.channel_id != channel_id:
+        raise BaberuError(f"{path} is for channel {terms.channel_id}, not {channel_id}.")
     return terms
 
 
-def resolve_list(name: str, lists_dir: Path) -> Path:
-    """A list by name in lists_dir, or a path to a file."""
-    for candidate in (lists_dir / f"{name}.txt", lists_dir / name, Path(name)):
-        if candidate.is_file():
-            return candidate
-    raise BaberuError(f"Keyterm list '{name}' was not found in {lists_dir} or as a file.")
-
-
-def lists_for(info: dict[str, Any], channels: dict[str, list[str]], extra: Iterable[str] = ()) -> list[str]:
-    """The lists to use: the channel's, then any named on the command line."""
-    names = [*channels.get(info.get("channel_id") or "", []), *extra]
-    return list(dict.fromkeys(names))
+def digest(terms: list[str]) -> str:
+    """Identifies a set of listed terms, so a job notices when its channel's file changes."""
+    return hashlib.sha256("\n".join(terms).encode("utf-8")).hexdigest()[:16]
 
 
 # --- Asking a model ---
@@ -169,12 +192,11 @@ def extract(info: dict[str, Any], seeds: list[str], llm: LLMProvider, lang_name:
 # --- The job's list ---
 
 def build(info: dict[str, Any],
-          list_paths: list[Path],
+          listed: list[str],
           max_terms: int,
           llm: LLMProvider | None = None,
           lang_name: str = "") -> list[str]:
-    """The model's picks first, then the local lists, then the tags."""
-    listed = [term for path in list_paths for term in read_list(path)]
+    """The model's picks first, then the channel's terms, then the tags."""
     from_video = from_metadata(info)
     picked = extract(info, clean(listed + from_video, MAX_KEYTERMS), llm, lang_name, max_terms) \
         if llm and info else []
@@ -182,9 +204,11 @@ def build(info: dict[str, Any],
 
 
 def write(terms: list[str], path: Path) -> None:
-    header = "# Keyterms sent to the transcription service, one per line. Edit freely; # starts a comment.\n"
-    atomic_write_text(path, header + "\n".join(terms) + "\n")
+    """One term per line."""
+    atomic_write_text(path, "\n".join(terms) + "\n")
 
 
 def load(path: Path, max_terms: int) -> list[str]:
-    return clean(read_list(path), max_terms) if path.is_file() else []
+    if not path.is_file():
+        return []
+    return clean(path.read_text(encoding="utf-8-sig").splitlines(), max_terms)

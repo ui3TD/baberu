@@ -277,7 +277,10 @@ def _plan_keyterms(request: RunRequest, settings: Settings, job: Job, stages: li
     if first is None:
         return
     action = _reuse_or_run(request, job, "keyterms", _keyterms_path(job))
-    sources = [*request.keyterm_lists, "channel lists", "tags"]
+    listed = _listed_terms(request, settings, job, required=False)
+    if action == REUSE and listed and _keyterms_are_stale(job, listed):
+        action = RUN   # the channel's file changed since this job's keyterms were made
+    sources = [*(listed.files if listed else ["the channel's file"]), "tags"]
     if settings.keyterms.llm_model:
         sources.insert(0, settings.keyterms.llm_model)
     stages.insert(first, PlannedStage("keyterms", action, "from " + ", ".join(sources),
@@ -323,6 +326,8 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
         raise BaberuError("ffmpeg was not found. Install it and make sure it's on your PATH.")
 
     _check_api_keys(request, settings, plan)
+    if plan.action("keyterms") == RUN:
+        _listed_terms(request, settings, job)  # a missing or broken file stops the run before anything is paid for
     if request.nekocap:
         _check_nekocap(request, settings, job, plan)
     # Checked here too, so a dry run reports it instead of the run stopping partway.
@@ -330,6 +335,10 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
         transcript = job.path(Stage.TRANSCRIPT)
         _guard_paid_work(job, transcript, None, settings.transcription.model, "transcribe")
         _guard_options(job, transcript, settings.transcription.options, "transcribe")
+        listed = _listed_terms(request, settings, job, required=False) if request.use_keyterms else None
+        if listed and _keyterms_are_stale(job, listed):
+            logger.warning(f"{', '.join(listed.files)} changed since this job's transcript was made. "
+                           f"Use --redo keyterms --redo transcribe to transcribe with the new terms, which costs money.")
     for name, model in (("retranscribe", _retranscribe_model(settings)), ("translate", request.model)):
         source_file = plan.inputs.get(name)
         if plan.action(name) == REUSE and source_file is not None:
@@ -359,11 +368,8 @@ def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None
             AIToolFactory.get_transcription_provider(_retranscribe_model(settings), _retranscribe_options(settings))
         if plan.action("translate") == RUN:
             AIToolFactory.get_llm_provider(request.model)
-        if plan.action("keyterms") == RUN:
-            if settings.keyterms.llm_model:
-                AIToolFactory.get_llm_provider(settings.keyterms.llm_model)
-            for name in request.keyterm_lists:
-                keyterms.resolve_list(name, request.keyterms_dir)
+        if plan.action("keyterms") == RUN and settings.keyterms.llm_model:
+            AIToolFactory.get_llm_provider(settings.keyterms.llm_model)
         if plan.action("context") == RUN:
             websearch = AIToolFactory.get_llm_provider(settings.translation.websearch_model)
             if not websearch.supports_grounding:
@@ -489,6 +495,46 @@ def _extract(video_file: Path, job: Job, action: str) -> Path:
     return audio_file
 
 
+@dataclass
+class _ListedTerms:
+    terms: list[str]
+    files: list[str]  # the names of the files they came from
+
+
+def _listed_terms(request: RunRequest, settings: Settings, job: Job,
+                  required: bool = True) -> _ListedTerms | None:
+    """The terms in the channel's file and the --keyterms file. None when there are none to know of yet.
+
+    When required, a channel with no file raises MissingChannelTerms (unless the config turns that off),
+    so nothing is transcribed without one. Otherwise a missing file gives None.
+    """
+    info = keyterms.load_metadata(_source_info_path(job))
+    channel_id = info.get("channel_id")
+    listed = _ListedTerms([], [])
+    if channel_id:
+        try:
+            path = keyterms.channel_file(info, settings.keyterms.channels, request.keyterms_dir)
+        except keyterms.MissingChannelTerms as error:
+            if settings.keyterms.require_channel_file:
+                if required:
+                    raise
+                return None
+            logger.warning(f"keyterms: {error}")
+        else:
+            listed.terms += keyterms.load_channel(path, channel_id).terms
+            listed.files.append(path.name)
+    if request.keyterms_file:
+        listed.terms += keyterms.load_channel(request.keyterms_file).terms
+        listed.files.append(request.keyterms_file.name)
+    return listed if channel_id or request.keyterms_file else None
+
+
+def _keyterms_are_stale(job: Job, listed: _ListedTerms) -> bool:
+    """True when the listed terms changed since the job's keyterms were made from them."""
+    origin = job.origin_of(_keyterms_path(job))
+    return bool(origin) and origin["source"] != keyterms.digest(listed.terms)
+
+
 def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) -> list[str]:
     """Builds, or reuses, the words sent to the transcription service so names come out right."""
     options = settings.keyterms
@@ -498,12 +544,7 @@ def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) ->
         return keyterms.load(path, options.max_terms)
 
     info = keyterms.load_metadata(_source_info_path(job))
-    list_paths = []
-    for name in keyterms.lists_for(info, options.channels, request.keyterm_lists):
-        try:
-            list_paths.append(keyterms.resolve_list(name, request.keyterms_dir))
-        except BaberuError as error:
-            logger.warning(f"keyterms: {error}")
+    listed = _listed_terms(request, settings, job) or _ListedTerms([], [])
     llm = None
     if options.llm_model and info:
         llm = AIToolFactory.get_llm_provider(options.llm_model, effort=options.effort,
@@ -511,10 +552,12 @@ def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) ->
         logger.info(f"keyterms: asking {options.llm_model} for names in the video's details...")
 
     lang_name = translation_prompts.language_name(request.lang_from)
-    terms = keyterms.build(info, list_paths, options.max_terms, llm, lang_name)
+    terms = keyterms.build(info, listed.terms, options.max_terms, llm, lang_name)
     keyterms.write(terms, path)
-    used = ", ".join(p.stem for p in list_paths) or "none"
-    logger.info(f"keyterms: {len(terms)} terms (lists: {used}{', video details' if info else ''})")
+    job.record_origin(path, keyterms.digest(listed.terms))
+    job.save()
+    used = ", ".join(listed.files) or "no keyterms file"
+    logger.info(f"keyterms: {len(terms)} terms ({used}{', video details' if info else ''})")
 
     if terms and options.confirm and _pause_for_review(
             request, f"\n{', '.join(terms)}\n\n"

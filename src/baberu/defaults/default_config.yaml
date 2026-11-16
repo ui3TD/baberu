@@ -106,8 +106,11 @@ nekocap:
 # spelled right. Scribe charges 20% more when keyterms are sent.
 keyterms:
   enabled: true
-  lists_dir: ""          # empty: a keyterms folder beside this config; one term per line in <name>.txt
-  channels: {}           # YouTube channel_id: [list names] used for every video from that channel
+  dir: ""                # empty: a keyterms folder beside this config
+  # YouTube channel_id: the one file, <dir>/<name>.yaml, holding every term for that channel.
+  # The file has channel_id, channel and terms (a plain list of strings), and nothing else.
+  channels: {}
+  require_channel_file: true   # a channel with no file stops the run before transcribing
   llm_model: ""          # a model that picks names out of the video's title and description; empty: tags and lists only
   effort: "low"
   max_terms: 100         # above 100, Scribe bills every request (each retranscribed clip) for at least 20 s

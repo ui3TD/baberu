@@ -1,7 +1,7 @@
 """The shape of config.yaml. A setting left out of the file uses the default here."""
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 
 class LoggingSettings(BaseModel):
@@ -105,9 +105,11 @@ class TranslationSettings(BaseModel):
 class KeytermSettings(BaseModel):
     """Words sent to the transcription service so names and jargon come out right."""
     enabled: bool = True
-    lists_dir: str = ""  # empty: a keyterms folder beside the config file in use
-    # A YouTube channel_id, mapped to the lists used for every video from it.
-    channels: dict[str, list[str]] = {}
+    dir: str = Field(default="", validation_alias=AliasChoices("dir", "lists_dir"))  # empty: keyterms/ beside the config
+    # A YouTube channel_id, mapped to the one file (<dir>/<name>.yaml) that holds every term for it.
+    channels: dict[str, str] = {}
+    # A channel with no file stops the run before transcribing. False: use the video's details only.
+    require_channel_file: bool = True
     # Picks names out of the video's title and description. Empty: use the tags and lists only.
     llm_model: str = ""
     effort: str | None = "low"
@@ -116,6 +118,15 @@ class KeytermSettings(BaseModel):
     max_terms: int = Field(default=100, ge=1, le=1000)
     confirm: bool = True       # show the list and wait, so keyterms.txt can be edited before paying
     retranscribe: bool = True  # send them on the second pass too
+
+    @field_validator("channels", mode="before")
+    @classmethod
+    def _one_file_per_channel(cls, value: Any) -> Any:
+        for channel_id, name in (value or {}).items():
+            if not isinstance(name, str):
+                raise ValueError(f"keyterms.channels.{channel_id} must name one file, not {name!r}. "
+                                 f"Put all of the channel's terms in that one file.")
+        return value
 
 
 class NekoCapSettings(BaseModel):

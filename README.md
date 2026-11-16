@@ -155,7 +155,7 @@ If paid work no longer matches, because the subtitles or model changed, baberu s
 baberu show.mp4 --redo translate
 ```
 
-`--redo` accepts `extract`, `transcribe`, `convert`, `retranscribe`, `context`, `translate` or `all`, and can be repeated.
+`--redo` accepts `extract`, `keyterms`, `transcribe`, `convert`, `retranscribe`, `context`, `translate` or `all`, and can be repeated.
 
 ### Other options
 
@@ -164,6 +164,8 @@ baberu show.mp4 --redo translate
 | `--model NAME` | Translation model |
 | `--lang-from CODE`, `--lang-to CODE` | Source and target language |
 | `--lines 5-20` | Work on only these lines, leaving the rest unchanged. With `-t` on a job that has a translation, those lines are translated again in place; otherwise the result is a separate `.L5-20` file |
+| `--keyterms FILE` | Add the terms in this keyterms file to the channel's |
+| `--no-keyterms` | Send no keyterms to the transcription service |
 | `--dry-run` | Show the plan without doing or spending anything |
 | `-y`, `--yes` | Don't pause to review the generated keyterms or context. Without a keyboard, baberu carries on by itself anyway |
 | `--diagnose` | Report a transcript's timing problems and save `health.json` in the work folder (free) |
@@ -194,6 +196,29 @@ baberu my_video.mp4 -A --hardcode -o my_video.subbed.mp4
 # Try another translation model
 baberu show.mp4 --model claude-opus-5-5 --redo translate
 ```
+
+### Keyterms
+
+Scribe models take a list of names and jargon to spell right. Each YouTube channel has one file holding every term for it, named in the config:
+
+```yaml
+keyterms:
+  channels:
+    UCxxxxxxxxxxxxxxxxxxxxxx: mychannel   # keyterms/mychannel.yaml
+```
+
+```yaml
+# keyterms/mychannel.yaml
+channel_id: UCxxxxxxxxxxxxxxxxxxxxxx
+channel: My Channel
+terms:
+  - Jane Doe
+  - The Weekly Show
+```
+
+The file holds only `channel_id`, `channel` and `terms`, a plain list of strings. Anything else is an error. A video from a channel with no file stops before transcribing and names the line and file to add. Set `require_channel_file: false` to go on with only the video's own details.
+
+Each job writes the terms it sends to `keyterms.txt`: a model's picks from the title and description, then the channel's terms, then the video's tags. If the channel's file changes, the next transcription makes `keyterms.txt` again. `--redo keyterms` does that by hand.
 
 ### Comparing transcription models
 
@@ -238,3 +263,5 @@ baberu uses your browser's NekoCap login. Run `baberu-nekocap-login`: it opens n
 Work from older versions (`show.raw.ass`, `show.json` and so on) is copied into the new work folder the first time you run that job, and the original files are left alone.
 
 Some options changed: `-t auto` is now `-t`, `-t FILE` is `--context FILE`, `-r FILE` is `--audio FILE`, and `--hardcode FILE` is `--hardcode` with `--subs` or `--video` if needed.
+
+Keyterm lists (`keyterms/<name>.txt`, several per channel) are now one `keyterms/<name>.yaml` per channel, and `keyterms.channels` maps each channel to one name. `lists_dir` is now `dir`. See [Keyterms](#keyterms).

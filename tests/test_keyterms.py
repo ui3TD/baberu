@@ -2,10 +2,13 @@
 import json
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from baberu.errors import BaberuError
 from baberu.providers.factory import AIToolFactory
 from baberu.providers.llm.openrouter import OpenRouterProvider
+from baberu.settings import KeytermSettings
 from baberu.setup import config_setup
 from baberu.transcription import keyterms
 from conftest import FakeLLM, FakeTranscriber, run_cli
@@ -54,23 +57,45 @@ def test_metadata_is_trimmed_when_saved(tmp_path):
     assert keyterms.load_metadata(tmp_path / "missing.json") == {}
 
 
-def test_lists_skip_comments_and_blank_lines(tmp_path):
-    (tmp_path / "idols.txt").write_text("# heading\n大谷映美里  # Emiri\n\n＝LOVE\n", encoding="utf-8")
-
-    path = keyterms.resolve_list("idols", tmp_path)
-    assert keyterms.read_list(path) == ["大谷映美里", "＝LOVE"]
-
-
-def test_unknown_list_is_an_error(tmp_path):
-    with pytest.raises(BaberuError, match="nope"):
-        keyterms.resolve_list("nope", tmp_path)
+def write_channel(folder, name, terms, channel_id=VIDEO["channel_id"], **extra):
+    data = {"channel_id": channel_id, "channel": VIDEO["channel"], "terms": terms, **extra}
+    path = folder / f"{name}.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    return path
 
 
-def test_channel_lists_come_before_named_ones():
-    channels = {VIDEO["channel_id"]: ["ikonoijoy"]}
+def test_a_channel_file_gives_its_terms(tmp_path):
+    write_channel(tmp_path, "ikonoijoy", ["大谷映美里", "＝LOVE"])
 
-    assert keyterms.lists_for(VIDEO, channels, ["food", "ikonoijoy"]) == ["ikonoijoy", "food"]
-    assert keyterms.lists_for({}, channels, ["food"]) == ["food"]
+    path = keyterms.channel_file(VIDEO, {VIDEO["channel_id"]: "ikonoijoy"}, tmp_path)
+    assert keyterms.load_channel(path, VIDEO["channel_id"]).terms == ["大谷映美里", "＝LOVE"]
+
+
+def test_a_channel_with_no_mapping_or_file_is_missing(tmp_path):
+    with pytest.raises(keyterms.MissingChannelTerms, match=f"Add `{VIDEO['channel_id']}: <name>`"):
+        keyterms.channel_file(VIDEO, {}, tmp_path)
+    with pytest.raises(keyterms.MissingChannelTerms, match="nope.yaml"):
+        keyterms.channel_file(VIDEO, {VIDEO["channel_id"]: "nope"}, tmp_path)
+
+
+@pytest.mark.parametrize("extra, terms", [({"note": "x"}, ["a"]), ({}, ["a", {"term": "b"}]), ({}, "a")])
+def test_a_channel_file_holds_only_a_plain_list_of_terms(tmp_path, extra, terms):
+    path = write_channel(tmp_path, "bad", terms, **extra)
+
+    with pytest.raises(BaberuError, match="not valid"):
+        keyterms.load_channel(path)
+
+
+def test_a_channel_file_is_for_one_channel(tmp_path):
+    path = write_channel(tmp_path, "other", ["a"], channel_id="UCother")
+
+    with pytest.raises(BaberuError, match="UCother"):
+        keyterms.load_channel(path, VIDEO["channel_id"])
+
+
+def test_a_channel_maps_to_one_file_not_a_list():
+    with pytest.raises(ValidationError, match="one file"):
+        KeytermSettings(channels={VIDEO["channel_id"]: ["ikonoijoy", "otani_emiri"]})
 
 
 def test_reply_parsing_removes_bullets_and_numbering():
@@ -79,21 +104,18 @@ def test_reply_parsing_removes_bullets_and_numbering():
     assert keyterms.parse_reply(reply) == ["大谷映美里", "とくべチューハイ", "アサヒ空想開発局"]
 
 
-def test_build_puts_the_models_picks_first(tmp_path):
-    (tmp_path / "group.txt").write_text("野口衣織\n大谷映美里\n", encoding="utf-8")
+def test_build_puts_the_models_picks_first():
     llm = FakeLLM(lambda prompt: "大谷映美里\nアサヒ空想開発局")
 
-    terms = keyterms.build(VIDEO, [tmp_path / "group.txt"], 100, llm, "Japanese")
+    terms = keyterms.build(VIDEO, ["野口衣織", "大谷映美里"], 100, llm, "Japanese")
 
     assert terms[:3] == ["大谷映美里", "アサヒ空想開発局", "野口衣織"]
     assert "とくべチューハイ" in terms and terms.count("大谷映美里") == 1
     assert "野口衣織" in llm.calls[0] and "出演メンバー" in llm.calls[0]
 
 
-def test_build_without_a_model_uses_lists_then_tags(tmp_path):
-    (tmp_path / "group.txt").write_text("野口衣織\n", encoding="utf-8")
-
-    assert keyterms.build(VIDEO, [tmp_path / "group.txt"], 3) == ["野口衣織", "とくべチューハイ", "乾杯"]
+def test_build_without_a_model_uses_the_channels_terms_then_tags():
+    assert keyterms.build(VIDEO, ["野口衣織"], 3) == ["野口衣織", "とくべチューハイ", "乾杯"]
 
 
 # --- OpenRouter ---
@@ -117,14 +139,14 @@ def scribe_run(workspace, monkeypatch, fake_llms):
     monkeypatch.setattr("baberu.tools.av_utils.duration_seconds", lambda path: 60.0)
     (workspace / "show.m4a").write_bytes(b"audio")
     (workspace / "show.info.json").write_text(json.dumps(VIDEO, ensure_ascii=False), encoding="utf-8")
-    lists = workspace / "lists"
-    lists.mkdir()
-    (lists / "ikonoijoy.txt").write_text("野口衣織\n", encoding="utf-8")
+    terms_dir = workspace / "keyterms"
+    terms_dir.mkdir()
+    write_channel(terms_dir, "ikonoijoy", ["野口衣織"])
 
     config = config_setup.load_config()
     config["transcription"]["model"] = "scribe_v3"
-    config["keyterms"].update(lists_dir=str(lists), llm_model="picker", confirm=False,
-                              channels={VIDEO["channel_id"]: ["ikonoijoy"]})
+    config["keyterms"].update(dir=str(terms_dir), llm_model="picker", confirm=False,
+                              channels={VIDEO["channel_id"]: "ikonoijoy"})
     fake_llms["picker"] = FakeLLM(lambda prompt: "アサヒ空想開発局")
     return seen
 
@@ -149,7 +171,7 @@ def test_transcription_gets_the_jobs_keyterms(scribe_run, workspace, monkeypatch
     job = workspace / "show.baberu"
     sent = scribe_run[-1]["keyterms"]
     assert sent[:2] == ["アサヒ空想開発局", "野口衣織"] and "大谷映美里" in sent
-    assert keyterms.read_list(job / "keyterms.txt") == sent
+    assert keyterms.load(job / "keyterms.txt", 100) == sent
     assert json.loads((job / "source.json").read_text(encoding="utf-8"))["id"] == VIDEO["id"]
 
 
@@ -161,6 +183,44 @@ def test_an_edited_list_is_reused(scribe_run, workspace, monkeypatch, fake_llms)
 
     assert scribe_run[-1]["keyterms"] == ["えみりー"]
     assert len(fake_llms["picker"].calls) == 1
+
+
+def test_a_channel_with_no_file_stops_before_transcribing(scribe_run, workspace, monkeypatch, capsys, fake_llms):
+    config_setup.load_config()["keyterms"]["channels"] = {}
+
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, workspace / "show.m4a", "-s")
+
+    error = capsys.readouterr().err
+    assert f"Add `{VIDEO['channel_id']}: <name>`" in error and "Traceback" not in error
+    assert not (workspace / "show.baberu" / "transcript.json").exists() and not fake_llms["picker"].calls
+
+
+def test_a_missing_file_can_be_allowed(scribe_run, workspace, monkeypatch):
+    config_setup.load_config()["keyterms"].update(channels={}, require_channel_file=False)
+
+    run_cli(monkeypatch, workspace / "show.m4a", "-s")
+
+    sent = scribe_run[-1]["keyterms"]
+    assert "アサヒ空想開発局" in sent and "野口衣織" not in sent
+
+
+def test_a_changed_channel_file_makes_the_keyterms_again(scribe_run, workspace, monkeypatch, fake_llms):
+    run_cli(monkeypatch, workspace / "show.m4a", "-s")
+    write_channel(workspace / "keyterms", "ikonoijoy", ["佐々木舞香"])
+
+    run_cli(monkeypatch, workspace / "show.m4a", "-s", "--redo", "transcribe")
+
+    assert "佐々木舞香" in scribe_run[-1]["keyterms"] and "野口衣織" not in scribe_run[-1]["keyterms"]
+    assert len(fake_llms["picker"].calls) == 2
+
+
+def test_redo_keyterms_makes_them_again(scribe_run, workspace, monkeypatch, fake_llms):
+    run_cli(monkeypatch, workspace / "show.m4a", "-s")
+
+    run_cli(monkeypatch, workspace / "show.m4a", "-s", "--redo", "keyterms", "--redo", "transcribe")
+
+    assert len(fake_llms["picker"].calls) == 2
 
 
 def test_no_keyterms_sends_none(scribe_run, workspace, monkeypatch):
