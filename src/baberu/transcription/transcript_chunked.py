@@ -101,7 +101,6 @@ def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang
                     )
                     adjusted_words.append(adjusted_word)
                 
-                # Only add segments that contain words after processing.
                 if adjusted_words:
                     all_segments.append(TranscribedSegment(words=adjusted_words))
             
@@ -115,12 +114,11 @@ def transcribe_in_chunks(audio_file: Path, provider: TranscriptionProvider, lang
 
 def _get_chunk_duration(max_size: int, file_size: int, total_duration_s: float) -> int:
     
-    # Calculate average bytes per second to estimate duration for max_size
-    # Add a 5% safety margin to stay safely under the limit.
+    # Chunks are sized to 95% of max_size, from the file's average bytes per second.
     safe_max_size = max_size * 0.95 
     avg_bytes_per_second = file_size / total_duration_s
     
-    # This is the maximum duration a chunk can be to not exceed the size limit
+    # Longest chunk, in seconds, that fits in safe_max_size
     max_duration_per_chunk_s = safe_max_size / avg_bytes_per_second
     
     # Now, create evenly distributed chunks
@@ -185,7 +183,7 @@ def _chunk_audio(
                 .output(
                     str(chunk_file_path),
                     t=chunk_duration_s,  # Specify duration for the chunk
-                    c='copy',              # Copy stream to avoid re-encoding (lossless and fast)
+                    c='copy',              # Stream copy, no re-encoding (lossless)
                     map_metadata=-1,       # Do not copy metadata to chunks
                 )
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)

@@ -4,7 +4,7 @@ Services and languages disagree on small things: Japanese punctuation comes
 as its own token while English punctuation is part of the word; spacing is a
 token in some responses and missing in others; a timestamp can be null. After
 normalize, every token is a timed word that carries its own punctuation and
-any space after it, so conversion only has to handle one convention.
+any space after it.
 """
 from __future__ import annotations
 
@@ -47,8 +47,7 @@ def _drop_non_speech(transcript: TranscriptionResult) -> None:
 def _fill_missing_times(transcript: TranscriptionResult) -> None:
     """A missing time becomes the token's other time, or the end of the token before.
 
-    The token is left with no length rather than stretched toward a distant
-    neighbour, which would invent a smear; the collapse check can then see it.
+    The token is left with no length.
     """
     missing = 0
     last_end = 0.0
@@ -63,7 +62,7 @@ def _fill_missing_times(transcript: TranscriptionResult) -> None:
 
 
 def _opens(text: str) -> bool:
-    """Opening brackets and quotes belong to the word after them."""
+    """Whether the text is only opening brackets and quotes."""
     stripped = text.strip()
     return bool(stripped) and all(unicodedata.category(char) in ("Ps", "Pi") for char in stripped)
 
@@ -81,7 +80,7 @@ def _attach_punctuation_and_spacing(words: list[TranscribedWord]) -> list[Transc
                 prefix += word.text
             elif result:
                 result[-1].text += word.text
-            # Closing punctuation with no word before it in the segment closes nothing.
+            # Closing punctuation with no word before it in the segment is dropped.
             continue
         if prefix:
             word.text = prefix + word.text.lstrip()
@@ -97,7 +96,7 @@ def _attach_punctuation_and_spacing(words: list[TranscribedWord]) -> list[Transc
 
 
 def _truncate_loops(transcript: TranscriptionResult, limits: AnomalySettings) -> None:
-    """Keeps the first few repeats of a loop. Numbers are never loops, so digits are untouched."""
+    """Keeps the first few repeats of a loop. Repeated numbers are left untouched."""
     for segment in transcript.segments:
         drop: set[int] = set()
         for anomaly in health.find_loops(segment.words, limits):

@@ -142,8 +142,7 @@ class WhisperProvider(WritableTranscriptionProvider):
                     # Find the word's position in the current segment's text
                     word_start_pos = segment_text.index(word_text, text_cursor)
                 except ValueError:
-                    # It's possible for whisper to have slight transcription mismatches.
-                    # We'll log it and skip the punctuation handling for this gap.
+                    # A word not found in the segment text is skipped.
                     logger.debug(
                         f"Word overlaps segment timing: Word '{word_text}' overlaps with Segment '{segment_text}' at position {text_cursor}. Skipping."
                     )

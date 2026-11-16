@@ -20,12 +20,12 @@ class _Route:
         return any(token in model_name.lower() for token in self.tokens)
 
     def provider_class(self) -> type:
-        # Imported on demand so an unused provider's SDK is never loaded.
+        # Imports the provider's module on first use.
         return getattr(import_module(f".{self.module}", __package__), self.class_name)
 
 
-# Order matters: the first match wins. Names like "google/gemini-pro" must
-# reach OpenRouter before "gemini" is considered.
+# Checked in order; the first match wins. A name with "/" (e.g. "google/gemini-pro")
+# is checked against OpenRouter before "gemini".
 _LLM_ROUTES = (
     _Route(("/",), "llm.openrouter", "OpenRouterProvider", "OPENROUTER_API_KEY"),
     _Route(("gemini",), "llm.gemini", "GeminiProvider", "GEMINI_API_KEY"),
@@ -79,5 +79,5 @@ class AIToolFactory:
 
     @staticmethod
     def get_transcription_provider_type(model_name: str) -> type[transcription_base.TranscriptionProvider]:
-        """Returns the provider class without needing an API key, for reading saved transcripts."""
+        """Returns the provider class. Needs no API key."""
         return _find_route(_TRANSCRIPTION_ROUTES, model_name, "transcription").provider_class()

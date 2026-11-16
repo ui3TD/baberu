@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 class ScribeProvider(TranscriptionProvider):
     supports_keyterms = True
 
-    # What baberu has always asked for. `options` from config.yaml go on top, so any
+    # Default request parameters. `options` from config.yaml go on top and can set any
     # parameter of the speech-to-text API (num_speakers, no_verbatim, keyterms,
-    # numbers_format...) can be tried without a code change.
+    # numbers_format...).
     DEFAULTS: dict[str, Any] = {
         "tag_audio_events": False,
         "diarize": True,
@@ -67,9 +67,8 @@ class ScribeProvider(TranscriptionProvider):
     def parse(json_data: dict[str, Any]) -> TranscriptionResult:
         """Reads a response. Tokens come from `words`, which keeps spacing; segments only mark the breaks.
 
-        segmented_json drops spacing tokens, so its own words would run English
-        together ("Thanks.Okay.So,"). When it doesn't line up with `words`, the
-        words are grouped by speaker instead.
+        segmented_json drops spacing tokens. When it doesn't line up with `words`,
+        the words are grouped by speaker instead.
         """
         transcription = SpeechToTextChunkResponseModel.model_validate(json_data)
         words = [ScribeProvider._word(word.model_dump()) for word in transcription.words]

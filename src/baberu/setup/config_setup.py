@@ -44,7 +44,7 @@ def apply_profiles(settings: Settings, lang: str) -> Settings:
 
 
 def config_dir(arg: Path | None = None) -> Path:
-    """The folder of the config file load_config reads, for files kept beside it."""
+    """The folder of the config file load_config reads."""
     if arg and arg.exists():
         return arg.resolve().parent
     try:
@@ -61,7 +61,7 @@ def load_config(arg: Path | None = None) -> dict[str, Any]:
     Load configuration from a YAML file with a fallback mechanism.
 
     The lookup order is:
-    1. Path specified by the commandline argument (not implemented).
+    1. Path specified by the --config argument.
     2. `config.yaml` in the project root (for development).
     3. `config.yaml` in the user's config directory (e.g., ~/.config/baberu/).
     4. The default `default_config.yaml` packaged with the application.

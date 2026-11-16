@@ -41,7 +41,7 @@ def load_transcript_json(json_file: Path) -> TranscriptionResult:
     return provider_type.parse(provider_type.validate(json_data))
 
 def split_key(model: str, text: str) -> str:
-    """Identifies one line-split question, so its answer can be reused."""
+    """A cache key for one line-split question, from the model and the text."""
     return hashlib.sha256(f"{model}\n{text}".encode("utf-8")).hexdigest()[:24]
 
 def _split_asker(parsing: ParsingSettings, split_cache: dict[str, str] | None) -> Callable[[str], str]:
@@ -66,9 +66,9 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
                                limits: AnomalySettings | None = None) -> SSAFile:
     """Turns word-level timings into subtitle lines using delimiters and length limits.
 
-    The transcript is normalized first, into a copy, so the caller's is unchanged.
-    `split_cache` holds the parsing model's answers by question; pass the same dict
-    each time so converting again neither costs money nor changes the lines.
+    The transcript is normalized and repaired in a copy; the caller's is unchanged.
+    `split_cache` holds the parsing model's answers by question; a question already
+    in it is not asked again.
     """
     get_splitter = _split_asker(parsing, split_cache)
     transcript = repair(normalize(transcript, limits), limits or AnomalySettings())
@@ -177,14 +177,12 @@ _CLOSE_BRACKETS = "）)"
 
 
 def _merge_fragments(lines: list[SubtitleLine], parsing: ParsingSettings) -> list[SubtitleLine]:
-    """Joins a word that a pause cut in two back onto its line.
+    """Joins a word that a pause cut in two back onto its line, such as 乾…杯 or 優勝で…す.
 
-    Scribe times Japanese one character at a time, so a drawn-out final syllable
-    (乾…杯, 優勝で…す) can leave a gap long enough to start a new line, or segment,
-    in the middle of a word. The tail is joined back when the line before it ends
-    mid-word (no delimiter, comma or space) and the tail is only a letter or two,
-    or when the break falls inside brackets such as （聞き取り不能）. Languages
-    written with spaces always end a word with one, so their lines are never joined.
+    The tail is joined
+    back when the line before it ends mid-word (no delimiter, comma or space) and
+    the tail is only a letter or two, or when the break falls inside brackets such
+    as （聞き取り不能）. A line that starts with a space is never joined.
     """
     merged: list[SubtitleLine] = []
     for line in lines:
@@ -278,16 +276,13 @@ def _create_subtitle_line(words: list[TranscribedWord], remove_text: list[str], 
 def _clean_subtitle_line(line: SubtitleLine, remove_text: list[str]) -> SubtitleLine:
     line_text = line.text
 
-    # Remove text
     if remove_text:
         for text_to_remove in remove_text:
             line_text = line_text.replace(text_to_remove, "")
 
-    # Remove hyphens at line start
     if line_text.startswith("-"):
             line_text = line_text[1:]
 
-    # Trim white space
     line_text = line_text.strip()
 
     line.text = line_text

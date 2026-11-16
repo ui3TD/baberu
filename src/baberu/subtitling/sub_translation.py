@@ -31,7 +31,7 @@ class _Batch:
     lang_to: str
     options: TranslationSettings
     attempts: list[dict] = field(default_factory=list)
-    # Events whose translation came back the same as the source twice, so taken as meant.
+    # Events whose translation came back the same as the source twice. They no longer count as problems.
     confirmed: set[int] = field(default_factory=set)
 
     @property
@@ -258,10 +258,9 @@ def _finish(results: list[str | None],
             batch: _Batch) -> tuple[list[str], dict[str, str]]:
     """Fills the lines still wrong, and lists them by line number.
 
-    A missing or empty line gets a placeholder at exactly its place, so every
-    other line stays aligned. A line that still matches its source is kept, since
-    some lines (a name, "OK") read the same in both languages; one the model
-    returned unchanged twice isn't listed at all.
+    A missing or empty line gets a placeholder at exactly its place. A line that
+    still matches its source is kept and listed, unless the model returned it
+    unchanged twice; then it isn't listed at all.
     """
     lines = list(results[:kept]) + [None] * (kept - len(results))
     unresolved: dict[str, str] = {}
@@ -326,7 +325,7 @@ def load_context(file_path: Path) -> str:
 
 
 def write_lines(lines: list[str], output_file: Path) -> None:
-    """Writes each string on its own line, ending with a newline so a final empty line survives.
+    """Writes each string on its own line, with a newline after the last one.
 
     Args:
         lines: The list of strings to write.

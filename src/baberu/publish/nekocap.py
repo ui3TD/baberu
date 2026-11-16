@@ -1,13 +1,13 @@
 """Uploads captions to NekoCap (nekocap.com) under the user's account.
 
 NekoCap's backend is a Parse Server; captions are created and replaced with its
-`submitCaption` and `updateCaption` cloud functions, as the browser extension
-does. Signing in happens in the browser (Google, through Firebase), so the
-client uses that browser's Parse session token instead of logging in itself.
+`submitCaption` and `updateCaption` cloud functions. NekoCap signs in through
+the browser (Google, through Firebase); the client uses that browser's Parse
+session token.
 
 An .ass file goes up as-is: NekoCap keeps the raw file, compressed with
-lz-string, and renders it with its ASS renderer. The extension sends an empty
-track list alongside it, so this does too.
+lz-string, and renders it with its ASS renderer. An empty track list is sent
+alongside it.
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ class NekoCapClient:
         return self._request("POST", f"functions/{function}", params).get("result")
 
     def user_id(self) -> str:
-        """Who the token belongs to. Changes nothing, so it's also the login check."""
+        """Who the token belongs to. Changes nothing; also used as the login check."""
         if self._user_id is None:
             self._user_id = self._request("GET", "users/me")["objectId"]
         return self._user_id

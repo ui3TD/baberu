@@ -16,8 +16,8 @@ MAX_RETRY_DELAY_SECONDS = 60
 def is_retryable(error: Exception) -> bool:
     """Tells whether trying the same request again could succeed.
 
-    Provider SDKs share no base exception class, so this goes by the HTTP
-    status they report, or by the name of the network error they raise.
+    Goes by the HTTP status the error reports, or by the name of the network
+    error class it is.
     """
     status = getattr(error, "status_code", None) or getattr(error, "code", None)
     if isinstance(status, int):
@@ -57,7 +57,7 @@ class Usage:
     cost: float | None = None
 
 
-# Every request made in this run, for the total at the end.
+# Every request made in this run.
 ledger: list[Usage] = []
 _usage_logger = logging.getLogger("baberu.usage")
 

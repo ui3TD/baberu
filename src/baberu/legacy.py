@@ -1,7 +1,6 @@
-"""Brings in work from before jobs had their own folders.
+"""Brings in work from the old layout, where jobs had no folders of their own.
 
-Older versions wrote files like `show.raw.ass` beside the media. This is the
-only code that knows those names, and it can be deleted once old jobs are gone.
+In that layout, files like `show.raw.ass` sit beside the media.
 """
 import logging
 from pathlib import Path
@@ -24,8 +23,8 @@ _RELATED_KINDS = (FileKind.VIDEO, FileKind.AUDIO, FileKind.TRANSCRIPT, FileKind.
 def job_name(path: Path) -> str | None:
     """The job an old-style subtitle or transcript belongs to.
 
-    A tag alone proves nothing, since a file can really be called `foo.raw.ass`.
-    It counts only when other files from the same job are beside it.
+    Returns a name only when the file has an old tag and other files from the
+    same job are beside it; otherwise None.
     """
     if kind_of(path) not in (FileKind.SUBTITLE, FileKind.TRANSCRIPT):
         return None
@@ -58,8 +57,7 @@ def adopt(job: Job, folders: list[Path], dry_run: bool) -> None:
     if job.lang_to == "en":
         wanted.update(_ENGLISH_ONLY)
 
-    # `show.en.ass` is also what someone's own subtitles might be called, so it
-    # only counts as baberu's when other files from the same old job exist.
+    # `show.en.ass` is copied only when other files from the same old job exist.
     old_job_exists = any(_find(job.name + suffix, folders) for suffix in wanted if suffix != ".en.ass")
 
     copied = 0

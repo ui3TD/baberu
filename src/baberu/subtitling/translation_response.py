@@ -10,8 +10,8 @@ EMPTY = "empty"
 UNTRANSLATED = "untranslated"
 
 _THINKING = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
-# "12. text", "12) text" or "12: text". The separator must be followed by a space,
-# so a line starting "1.5 million" is not read as entry 1.
+# "12. text", "12) text" or "12: text". The separator must be followed by a space
+# or the end of the line; a line starting "1.5 million" is not entry 1.
 _ENTRY = re.compile(r"^\s*(\d+)\s*[.):](?:\s+|$)(.*)$")
 
 
@@ -58,8 +58,8 @@ def _clean(entry: str | None) -> str | None:
 def _clean_ellipses(lines: list[str | None]) -> list[str | None]:
     """Removes the ellipses that mark one sentence running across two lines.
 
-    Only a leading '...' that follows a line ending in '...' is redundant; any
-    other ellipsis is part of the translation.
+    Removes a trailing '...' and the leading '...' of the next line only as a
+    pair. Any other ellipsis stays.
     """
     cleaned = list(lines)
     for i in range(1, len(cleaned)):

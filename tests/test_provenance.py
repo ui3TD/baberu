@@ -1,4 +1,4 @@
-"""Model comparisons only mean something if old work is never silently reused."""
+"""Records of which model and options made each piece of work, and when old work is reused."""
 import json
 
 import pytest

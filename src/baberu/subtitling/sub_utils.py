@@ -75,12 +75,12 @@ def write(sub_file: SSAFile,
     return output_file
 
 def fingerprint(sub_file: SSAFile) -> str:
-    """Identifies subtitle text, to tell whether paid work still matches it."""
+    """A hash of the subtitle text."""
     return hashlib.sha256("\n".join(e.text for e in sub_file.events).encode("utf-8")).hexdigest()
 
 
 def timed_fingerprint(sub_file: SSAFile) -> str:
-    """Identifies subtitle text and timing, to tell whether a free stage's output still matches its input."""
+    """A hash of the subtitle text and timing."""
     rows = (f"{e.start}\t{e.end}\t{e.text}" for e in sub_file.events)
     return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
 
@@ -139,9 +139,9 @@ def md_to_ass(subtitles: SSAFile, line_range: LineRange | None = None) -> SSAFil
     events = subtitles.events[line_range.start:line_range.end + 1] if line_range else subtitles.events
     for event in events:
         if r"{\i1}" in event.text or r"{\b1}" in event.text:
-            continue  # Skip processing this event
+            continue  # Already has ASS formatting
 
-        # Replace bold+italic formatting (triple asterisks) - must process first
+        # Replace bold+italic formatting (triple asterisks), before bold and italic
         bold_italic_result = bold_italic_pattern.subn(r'{\\b1}{\\i1}\1{\\i0}{\\b0}', event.text)
         event.text = bold_italic_result[0]
         bold_italic_count += bold_italic_result[1]

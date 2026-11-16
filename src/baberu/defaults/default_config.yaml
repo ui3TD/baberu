@@ -32,7 +32,7 @@ parsing:
 mistimed_lines:
   mistimed_line_thresh_sec: 0.1
   method: "backfill"     # backfill: short lines take the time before them
-                         # squeezed: only short lines pressed against the next line start earlier (for Scribe v3)
+                         # squeezed: only short lines pressed against the next line start earlier
   squeezed_letters_per_sec: 8.0
   squeezed_min_sec: 0.3
   squeezed_max_sec: 1.0
@@ -51,7 +51,7 @@ mistimed_segs:
   seg_foretrace_limit: 5
   seg_min_delay: 10.0
   seg_max_gap: 4
-  clip_margin_sec: 1.0   # second-pass clips are cut this much wider for lead-in; words in the margin are dropped
+  clip_margin_sec: 1.0   # second-pass clips are cut this much wider on both sides; words in the margin are dropped
 
 # Transcript problems reported by --diagnose and health.json. A token must break the
 # physical limit and also be median_multiple times away from the file's median.
@@ -79,7 +79,7 @@ profiles:
         options: {diarization_threshold: 0.1}
   # - model: "scribe_v3"
   #   settings:
-  #     mistimed_lines: {method: "squeezed"}   # v3 starts are right except for squeezed reactions
+  #     mistimed_lines: {method: "squeezed"}
 
 translation:
   default_model: "gemini-2.5-pro"
@@ -102,8 +102,8 @@ nekocap:
   title_model: ""        # translates the video title, with the job's notes; empty: translation.default_model
   video_languages: {ja: ja_JP}   # NekoCap's code for the video's language, by source language
 
-# Names and jargon sent to the transcription service (ElevenLabs Scribe) so they are
-# spelled right. Scribe charges 20% more when keyterms are sent.
+# Names and jargon sent to the transcription service (ElevenLabs Scribe).
+# Scribe charges 20% more when keyterms are sent.
 keyterms:
   enabled: true
   dir: ""                # empty: a keyterms folder beside this config
@@ -114,5 +114,5 @@ keyterms:
   llm_model: ""          # a model that picks names out of the video's title and description; empty: tags and lists only
   effort: "low"
   max_terms: 100         # above 100, Scribe bills every request (each retranscribed clip) for at least 20 s
-  confirm: true          # show the list and wait, so keyterms.txt can be edited before transcribing
+  confirm: true          # show the list and wait while keyterms.txt is reviewed
   retranscribe: true     # send them on the second pass too

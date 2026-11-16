@@ -537,7 +537,7 @@ def test_context_prompt_is_skipped_without_a_terminal(workspace, monkeypatch):
 
 
 def test_context_prompt_without_a_keyboard_carries_on(workspace, monkeypatch):
-    """isatty() is true for NUL on Windows, so input() can still hit end of input."""
+    """With isatty() true and input() hitting end of input, the run carries on."""
     from baberu.setup import config_setup
 
     settings = config_setup.load_config()

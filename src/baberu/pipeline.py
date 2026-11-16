@@ -147,14 +147,13 @@ def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: P
 
     has_transcript = any(s.name == "transcribe" for s in stages) or bool(request.json_file)
     if request.convert and has_transcript:
-        # A new transcript makes the old lines stale, so they are converted again.
+        # Converts again when a new transcript is made.
         transcribing = any(s.name == "transcribe" and s.action == RUN for s in stages)
         action = RUN if request.json_file or transcribing else _reuse_or_run(request, job, "convert", job.path(Stage.RAW))
         stages.append(PlannedStage("convert", action))
 
     has_subtitles = bool(request.sub_file) or any(s.name == "convert" for s in stages)
-    # A job remembers its own chain: optional stages that made its saved work stay in it, so asking
-    # for a later stage reads the same subtitles a full run did.
+    # Optional stages that made the job's saved work stay in the plan when a later stage is asked for.
     from_transcript = any(s.name == "convert" for s in stages)
     later_than_retranscribe = request.fix or request.translate or request.pad
     if has_subtitles and ((retranscribe and will_have_audio) or
@@ -199,15 +198,15 @@ _SUBTITLE_OUTPUTS = {"retranscribe": Stage.TWOPASS, "fix": Stage.FIXED, "transla
 def _plan_inputs(request: RunRequest, settings: Settings, job: Job, stages: list[PlannedStage]) -> dict[str, Path | None]:
     """Follows the subtitles through the plan while they're files already on disk.
 
-    Fix and pad are free, so they are marked REUSE here when their saved output was made
-    from the same input with the same settings; the run checks again before using it.
+    Marks fix and pad REUSE when their saved output was made from the same input with
+    the same settings; the run checks again before using it.
     """
     inputs: dict[str, Path | None] = {}
     current = request.sub_file
     for stage in stages:
         if stage.name == "convert":
             raw = job.path(Stage.RAW)
-            current = raw if stage.action == REUSE and raw.exists() else None   # a dry run's adopted files aren't copied
+            current = raw if stage.action == REUSE and raw.exists() else None
             continue
         if stage.name not in _SUBTITLE_OUTPUTS:
             continue
@@ -279,7 +278,7 @@ def _plan_keyterms(request: RunRequest, settings: Settings, job: Job, stages: li
     action = _reuse_or_run(request, job, "keyterms", _keyterms_path(job))
     listed = _listed_terms(request, settings, job, required=False)
     if action == REUSE and listed and _keyterms_are_stale(job, listed):
-        action = RUN   # the channel's file changed since this job's keyterms were made
+        action = RUN
     sources = [*(listed.files if listed else ["the channel's file"]), "tags"]
     if settings.keyterms.llm_model:
         sources.insert(0, settings.keyterms.llm_model)
@@ -327,10 +326,10 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
 
     _check_api_keys(request, settings, plan)
     if plan.action("keyterms") == RUN:
-        _listed_terms(request, settings, job)  # a missing or broken file stops the run before anything is paid for
+        _listed_terms(request, settings, job)  # raises on a missing or broken file
     if request.nekocap:
         _check_nekocap(request, settings, job, plan)
-    # Checked here too, so a dry run reports it instead of the run stopping partway.
+    # Also checked when the stage runs.
     if plan.action("transcribe") == REUSE:
         transcript = job.path(Stage.TRANSCRIPT)
         _guard_paid_work(job, transcript, None, settings.transcription.model, "transcribe")
@@ -360,7 +359,7 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
 
 
 def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None:
-    """Building a provider needs its key but makes no request."""
+    """Builds the providers the plan will run, which checks their API keys. Makes no request."""
     try:
         if plan.action("transcribe") == RUN:
             AIToolFactory.get_transcription_provider(settings.transcription.model, settings.transcription.options)
@@ -505,8 +504,8 @@ def _listed_terms(request: RunRequest, settings: Settings, job: Job,
                   required: bool = True) -> _ListedTerms | None:
     """The terms in the channel's file and the --keyterms file. None when there are none to know of yet.
 
-    When required, a channel with no file raises MissingChannelTerms (unless the config turns that off),
-    so nothing is transcribed without one. Otherwise a missing file gives None.
+    When required, a channel with no file raises MissingChannelTerms (unless the config turns that off).
+    Otherwise a missing file gives None.
     """
     info = keyterms.load_metadata(_source_info_path(job))
     channel_id = info.get("channel_id")
@@ -536,7 +535,7 @@ def _keyterms_are_stale(job: Job, listed: _ListedTerms) -> bool:
 
 
 def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) -> list[str]:
-    """Builds, or reuses, the words sent to the transcription service so names come out right."""
+    """Builds, or reuses, the words sent to the transcription service."""
     options = settings.keyterms
     path = _keyterms_path(job)
     if action == REUSE:
@@ -567,12 +566,12 @@ def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) ->
 
 
 def _pause_for_review(request: RunRequest, message: str) -> bool:
-    """Waits for Enter so a generated file can be edited. False when nobody is there to press it."""
+    """Waits for Enter while a generated file is reviewed. False when review is off or there's no keyboard."""
     if not request.review or not sys.stdin.isatty():
         return False
     try:
         input(message)
-    except EOFError:  # isatty() is also true for NUL on Windows and for shells without a keyboard
+    except EOFError:  # raised for NUL on Windows and shells without a keyboard, where isatty() is also true
         logger.info("no keyboard; continuing without review")
         return False
     return True
@@ -723,7 +722,7 @@ def _context(sub_data: SSAFile, request: RunRequest, job: Job, action: str, opti
     if request.context_file:
         context_data = sub_translation.load_context(request.context_file)
         if not _is_same_file(request.context_file, context_file):
-            # Kept in the job, so the NekoCap title is translated with the same notes.
+            # Copies the notes into the job. The NekoCap title is translated with them.
             sub_translation.write_lines([context_data], context_file)
         return context_data
 
@@ -765,7 +764,7 @@ def _video_details(job: Job) -> str:
 
 
 def _fallback_llm(system_prompt: str, model: str, options: TranslationSettings) -> LLMProvider | None:
-    """The backup translator. A missing API key shouldn't stop the main model from running."""
+    """The backup translator. None when there is none or its API key is missing."""
     if not options.fallback_model or options.fallback_model == model:
         return None
     try:
@@ -915,7 +914,7 @@ def _publish(job: Job, source: Path, target: Path, overwrite: bool) -> None:
         current_hash = file_hash(target)
         edited = current_hash != job.published_hash(target.name)
         if edited and new_hash == job.published_hash(target.name) and not overwrite:
-            # Nothing new to hand back, so the user's edits stand.
+            # Keeps the user's edits when there's nothing new.
             logger.info(f"Keeping your edits to {target.name}; baberu has nothing new for it.")
             return
         if current_hash != new_hash and edited and not overwrite:
@@ -944,7 +943,7 @@ def _publish_subtitles(sub_data: SSAFile, job: Job, target: Path, overwrite: boo
 
 
 def _deliver_stage_file(request: RunRequest, job: Job, produced: Path) -> Path:
-    """For runs that stop before subtitles, -o can copy the file out of the work folder."""
+    """Copies the file made by a run that stops before subtitles to -o or the output folder."""
     if request.output_file:
         if request.output_file.suffix.lower() != produced.suffix.lower():
             raise BaberuError(f"The result is a {produced.suffix} file, so -o needs that extension: {request.output_file}")
@@ -1007,7 +1006,7 @@ def run(request: RunRequest, settings: Settings) -> None:
     input_file, video, audio = request.input_file, request.video_file, request.audio_file
     info: dict = {}
     if request.url and request.dry_run:
-        # An earlier download, and its work folder, can be planned without downloading again.
+        # Plans from an earlier download and its work folder, without downloading again.
         input_file = av_utils.find_download(request.url, request.output_dir)
         if not input_file:
             _preview_url(request.url)
@@ -1029,8 +1028,7 @@ def run(request: RunRequest, settings: Settings) -> None:
     if _is_media_source(input_file):
         job.check_source(input_file.name)
 
-    # --lines with -t on a job that already has a whole translation corrects those lines in it,
-    # instead of making a separate result for the range.
+    # --lines with -t on a job that already has a whole translation corrects those lines in it.
     in_place = bool(request.line_range and request.translate and not request.retranscribe_required
                     and not request.fix_named and job.has(job.path(Stage.TRANSLATED, whole_file=True)))
     if in_place:
@@ -1062,7 +1060,7 @@ def run(request: RunRequest, settings: Settings) -> None:
 
 
 def _save_source_info(job: Job, input_file: Path, info: dict) -> None:
-    """Keeps the video's title, tags and description, for keyterms and translation notes."""
+    """Saves the video's title, tags and description. Keyterms and translation notes read them."""
     if not info and not _source_info_path(job).exists():
         sidecar = keyterms.find_info_json(input_file)
         info = keyterms.load_metadata(sidecar) if sidecar else {}

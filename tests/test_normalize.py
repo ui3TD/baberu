@@ -199,7 +199,7 @@ def test_brackets_cut_by_a_pause_are_joined():
 
 
 def test_a_longer_line_after_a_pause_stays_separate():
-    # A one-letter line before a pause is often a real interjection; leave it.
+    # A one-letter line before a pause stays a line of its own.
     t = transcript(*chars("特", 0.0), *chars("別二番。", 3.0))
 
     assert lines(t) == ["特", "別二番。"]

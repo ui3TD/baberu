@@ -8,8 +8,8 @@ from typing import Any
 class TranscribedWord(pydantic.BaseModel):
     """One token as the service sent it. Times can be missing; normalize fills them in.
 
-    `type` is usually "word", "spacing" or "audio_event", but any other type a
-    service adds is kept rather than failing the whole transcript.
+    `type` is usually "word", "spacing" or "audio_event". Any other type a
+    service sends is kept.
     """
     text: str
     start: float | None

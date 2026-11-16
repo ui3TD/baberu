@@ -6,8 +6,8 @@ from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider, record_
 class OpenRouterProvider(LLMProvider):
     """Any model on OpenRouter, named as vendor/model (e.g. anthropic/claude-sonnet-5.5).
 
-    Uses the chat completions API: OpenRouter passes cache markers on to the
-    provider there, but ignores them in its Responses API.
+    Uses the chat completions API. OpenRouter passes cache markers on to the
+    provider there, and ignores them in its Responses API.
     """
 
     supports_grounding = True  # through OpenRouter's web plugin, whatever the model

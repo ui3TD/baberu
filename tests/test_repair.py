@@ -161,6 +161,6 @@ def test_a_margin_gives_lead_in_and_drops_words_outside_the_range(second_pass):
 
     result = second_pass(subs, LineRange(1, 3), margin_sec=1.0)
 
-    # The clip is cut from 0 s to 4 s; "hello" (middle at 1 s) falls inside lines 1-3, so it replaces them.
+    # The clip is cut from 0 s to 4 s; "hello" (middle at 1 s) falls inside lines 1-3 and replaces them.
     assert second_pass.job.segment(0, 4000, "scribe_v3").exists()
     assert [e.text for e in result.events] == ["before", "hello", "after"]

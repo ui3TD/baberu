@@ -44,8 +44,7 @@ def targeted_retry_prompt(previous_translations: list[str],
                           context_lines: int) -> str:
     """Asks again for only the entries that came back wrong. Keys are indexes in the batch.
 
-    The whole batch and the translations already accepted are included, so the
-    retried entries fit the lines around them.
+    The whole batch and the translations already accepted are included.
     """
     source_name, target_name = _get_lang_name(lang_from), _get_lang_name(lang_to)
     accepted_text = "\n".join(f"{i + 1}. {accepted[i]}" for i in sorted(accepted)) or "(none)"
@@ -62,7 +61,7 @@ def targeted_retry_prompt(previous_translations: list[str],
 
 
 def context_section(context_prompt: str) -> str:
-    """How every translation prompt starts. It is the same for every batch, so it can be cached."""
+    """How every translation prompt starts. It is the same for every batch."""
     return f"Context:\n{context_prompt}\n\n"
 
 

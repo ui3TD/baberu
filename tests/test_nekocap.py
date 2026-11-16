@@ -158,7 +158,7 @@ def test_an_unchanged_translation_is_not_uploaded_again(neko, workspace, monkeyp
 
 def test_a_caption_deleted_on_the_site_is_uploaded_again(neko, workspace, monkeypatch):
     run_cli(monkeypatch, workspace / "video.ass", "--nekocap", "--context", workspace / "ctx.txt")
-    # The user deleted it on nekocap.com, so findCaptions no longer lists it.
+    # findCaptions does not list the first upload, as when it was deleted on nekocap.com.
     run_cli(monkeypatch, workspace / "video.ass", "--nekocap", "--context", workspace / "ctx.txt")
 
     assert len(neko.sent("submitCaption")) == 2

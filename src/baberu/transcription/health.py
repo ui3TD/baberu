@@ -2,9 +2,6 @@
 
 Every limit is physical (seconds per character) and, where a file's own
 behaviour matters, must also be a multiple away from that file's median.
-That keeps the checks meaningful across models and languages, which
-tokenise very differently (one token per character for Japanese, one per
-word for English).
 """
 from __future__ import annotations
 
@@ -93,7 +90,7 @@ def median_sec_per_char(all_tokens: list[TranscribedWord]) -> float | None:
 
 
 def logprob_is_informative(all_tokens: list[TranscribedWord]) -> bool:
-    """Some models report a constant confidence. Then it says nothing."""
+    """Whether token confidence varies at all. False when every token has the same value."""
     values = {word.confidence for word in all_tokens if word.confidence is not None}
     return len(values) > 1
 
@@ -101,7 +98,7 @@ def logprob_is_informative(all_tokens: list[TranscribedWord]) -> bool:
 # --- Profile ---
 
 def profile(transcript: TranscriptionResult) -> dict[str, Any]:
-    """Describes a transcript's tokens and timing, to compare models side by side."""
+    """Describes a transcript's tokens and timing."""
     all_tokens = tokens(transcript)
     spoken = [word for _, word in _spoken(all_tokens)]
     timed = [word for word in all_tokens if word.type != "spacing"]
@@ -206,9 +203,9 @@ def _loop_text(word: TranscribedWord) -> str:
 
 
 def find_loops(all_tokens: list[TranscribedWord], limits: AnomalySettings) -> Iterator[Anomaly]:
-    """The same few tokens over and over, a common way for speech models to fail.
+    """The same few tokens over and over.
 
-    Numbers are never loops: "1000000" may arrive as seven tokens.
+    A repeated unit with no letters, such as a number, is never a loop.
     """
     indices = [i for i, word in enumerate(all_tokens) if word.type == "word"]
     texts = [_loop_text(all_tokens[i]) for i in indices]

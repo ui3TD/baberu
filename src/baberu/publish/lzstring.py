@@ -1,9 +1,7 @@
 """lz-string's compressToBase64, matching the JavaScript library byte for byte.
 
 NekoCap stores raw caption files compressed with lz-string (pieroxy/lz-string,
-1.4-1.5). The Python ports on PyPI walk the text by code point, but JavaScript
-strings are UTF-16: an emoji is two units there, so those ports produce
-different output. This port works on UTF-16 code units, like the original.
+1.4-1.5). This port works on UTF-16 code units, like the original.
 """
 _BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 
@@ -49,7 +47,7 @@ def _compress(text: str, bits_per_char: int, alphabet: str) -> str:
     dictionary: dict[str, int] = {}
     to_create: set[str] = set()
     w = ""
-    enlarge_in = 2  # compensates for the first entry, which should not count
+    enlarge_in = 2  # the first entry isn't counted
     dict_size = 3
     num_bits = 2
     out = _BitWriter(bits_per_char, alphabet)

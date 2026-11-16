@@ -1,13 +1,12 @@
 """Where everything for one piece of media lives.
 
 A job is a work folder beside the media. Structure comes from folders and
-fixed names, and facts live in manifest.json, so nothing is ever worked out
-by reading a file's name back.
+fixed names, and facts live in manifest.json.
 
     show.baberu/
       manifest.json
       audio.ogg  transcript.json  raw.ass  2pass.ass  fixed.ass  padded.ass
-      splits.json   (line-split decisions, so re-converting costs nothing)
+      splits.json   (saved line-split decisions)
       segments/<start>-<end>.<model>.json
       en/  context.txt  partial.txt  translated.ass  padded.ass
       lines-5-10/   (the same structure, for a --lines run)
@@ -156,7 +155,7 @@ class Job:
         return None
 
     def segment(self, start_ms: int, end_ms: int, model: str) -> Path:
-        """Where a retranscribed piece of audio is kept. Named by model, so a new model never reuses old work."""
+        """Where a retranscribed piece of audio is kept, named by model."""
         slug = re.sub(r"[^A-Za-z0-9._-]", "_", model)
         return self.folder / "segments" / f"{start_ms}-{end_ms}.{slug}.json"
 

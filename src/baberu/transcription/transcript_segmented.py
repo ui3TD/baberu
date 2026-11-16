@@ -51,7 +51,7 @@ def anomaly_ranges(subtitles: SSAFile, anomalies: list[Anomaly]) -> list[LineRan
 
 
 def merge_ranges(ranges: list[LineRange]) -> list[LineRange]:
-    """Joins ranges that overlap or touch, so no line is transcribed twice."""
+    """Joins ranges that overlap or touch."""
     merged: list[LineRange] = []
     for line_range in sorted(ranges, key=lambda r: r.start):
         if merged and line_range.start <= merged[-1].end + 1:
@@ -86,9 +86,8 @@ def transcribe_segments(subtitles: SSAFile,
     Better means not empty, and fewer problems than the lines it replaces:
     first-pass `anomalies` of the given `kinds` in that time, plus short lines.
     `always_accept` skips the comparison, for a range the user chose.
-    `margin_sec` widens the audio cut on each side, giving the service lead-in and
-    lead-out so the first and last words aren't lost or misheard. Words whose middle
-    falls in the margin belong to the neighbouring lines and are dropped.
+    `margin_sec` widens the audio cut on each side. Words whose middle falls in the
+    margin are dropped.
     """
     if not ranges:
         return subtitles
@@ -96,7 +95,7 @@ def transcribe_segments(subtitles: SSAFile,
     limits = limits or AnomalySettings()
     transcript_provider = None
 
-    # Work backwards so replacing one range doesn't move the ones still to do.
+    # Works from the last range to the first.
     for line_range in sorted(ranges, key=lambda r: r.start, reverse=True):
         start_time_ms = subtitles.events[line_range.start].start
         end_time_ms = subtitles.events[line_range.end].end
@@ -145,7 +144,7 @@ def _clip_bounds(start_ms: int, end_ms: int, margin_sec: float) -> tuple[int, in
 
 
 def _within(transcript: TranscriptionResult, start_sec: float, end_sec: float) -> TranscriptionResult:
-    """Keeps the words whose middle falls between start and end; the rest belong to the margins."""
+    """Keeps the words whose middle falls between start and end, and words with no times."""
     def inside(word: TranscribedWord) -> bool:
         if word.start is None or word.end is None:
             return True
@@ -182,7 +181,7 @@ def _transcribe_audio(audio_file: Path, start_ms: int, end_ms: int, provider, la
         temp_audio_path.unlink(missing_ok=True)
 
 def pad_segments(subtitles: SSAFile, ranges: list[LineRange]) -> list[LineRange]:
-    """Widens each range by one line on both sides, as a buffer for cutting audio."""
+    """Widens each range by one line on both sides, within the file's lines."""
     last_line = len(subtitles.events) - 1
     return [LineRange(max(r.start - 1, 0), min(r.end + 1, last_line)) for r in ranges]
 

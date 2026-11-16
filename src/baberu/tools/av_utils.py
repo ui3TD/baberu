@@ -12,7 +12,7 @@ from baberu.tools.file_utils import FileKind, atomic_path, kind_of
 
 logger = logging.getLogger(__name__)
 
-# yt-dlp's usual naming, with a cap so long titles fit within file name limits.
+# yt-dlp's usual naming, with the title capped at 120 bytes.
 DOWNLOAD_NAME = "%(title).120B [%(id)s].%(ext)s"
 
 def _download_options(directory: Path | None = None) -> dict[str, Any]:
@@ -152,9 +152,8 @@ def hardcode_subtitles(video_file: Path,
                        output_file: Path) -> Path:
     """Burns subtitles into a video, re-encoding to H.264 video and AAC audio.
 
-    ffmpeg's subtitle filter can't reliably read paths containing drive
-    letters or special characters, so it is given a plainly named temporary
-    copy under the current directory.
+    ffmpeg's subtitle filter reads a plainly named temporary copy of the
+    subtitle file, under the current directory.
 
     Args:
         video_file: Path to the input video file.

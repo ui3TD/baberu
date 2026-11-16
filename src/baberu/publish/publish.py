@@ -96,7 +96,7 @@ def title_model(settings: Settings) -> str:
 
 
 def translate_title(job: Job, title: str, lang_from: str, lang_to: str, settings: Settings) -> str:
-    """Translates the title with the job's notes, so names are spelled as in the subtitles."""
+    """Translates the title, with the job's notes in the prompt."""
     model = title_model(settings)
     if not model or not title:
         return title
@@ -135,7 +135,7 @@ def upload(item: Upload, settings: Settings, dry_run: bool = False) -> str | Non
 
     title = item.title or ("" if item.retitle else earlier.get("title", ""))
     existing = neko.find_own_caption(video_id, item.lang_to)
-    # Skip only if the caption we uploaded is still there; it may have been deleted on the site.
+    # Skips when the caption uploaded last is still on the site and nothing has changed.
     if existing and existing.id == earlier.get("captionId") and earlier.get("hash") == digest \
             and earlier.get("privacy") == item.privacy and title == earlier.get("title"):
         page = nekocap.caption_url(existing.id)

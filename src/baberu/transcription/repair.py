@@ -30,11 +30,10 @@ def repair(transcript: TranscriptionResult, limits: AnomalySettings) -> Transcri
 def unresolved(transcript: TranscriptionResult, limits: AnomalySettings) -> list[health.Anomaly]:
     """Anomalies the free repairs can't settle, which retranscribe may try.
 
-    Every smear stays on the list even though it gets clamped: the time it
-    covered may hold speech the model missed. Anything else counts only if it
-    is still there after normalizing and repairing.
+    Every smear stays on the list, clamped or not. Anything else counts only
+    if it is still there after normalizing and repairing.
     """
-    counted = health.repairs.copy()  # A look ahead, not a repair: leave the counts as they were.
+    counted = health.repairs.copy()  # Repair counts are restored after the look ahead.
     normalized = normalize(transcript, limits)
     smears = [a for a in health.find_anomalies(normalized, limits) if a.kind == "smear"]
     repaired = repair(normalized.model_copy(deep=True), limits)
@@ -52,9 +51,7 @@ def _plausible_duration(word: TranscribedWord, median: float | None, limits: Ano
 def clamp_smears(transcript: TranscriptionResult, limits: AnomalySettings) -> int:
     """Shortens each smeared token, keeping the edge closest to a neighbour.
 
-    A smear usually has one true edge. In real transcripts it is the end that
-    touches the next word (`ア` from 1195s to 1345s, then `イ` at 1345s), but
-    sometimes the start that follows the previous word; the closer edge wins.
+    The end is kept on a tie. Returns how many tokens were shortened.
     """
     tokens = health.tokens(transcript)
     median = health.median_sec_per_char(tokens)

@@ -61,7 +61,7 @@ def _looks_like_token(text: str) -> bool:
 
 
 def _wait_for_token(timeout_sec: float = 300, interval_sec: float = 1.0) -> str:
-    """Without a terminal to press Enter in, watches the clipboard for the token instead."""
+    """Watches the clipboard for the token, for up to `timeout_sec`. Empty when none appears."""
     print("3. Waiting for the token to appear on the clipboard (up to 5 minutes)...", flush=True)
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
@@ -108,7 +108,7 @@ def _save(token: str, settings: NekoCapSettings) -> None:
     env_file = _env_file()
     env_file.touch(exist_ok=True)
     dotenv.set_key(str(env_file), ENV_KEY, token, quote_mode="never")
-    _set_clipboard("")  # don't leave the token lying on the clipboard
+    _set_clipboard("")
     print(f"Signed in to NekoCap (user {user}). Saved {ENV_KEY} in {env_file}.")
 
 

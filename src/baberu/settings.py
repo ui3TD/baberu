@@ -11,7 +11,7 @@ class LoggingSettings(BaseModel):
 
 
 class TranscriptionSettings(BaseModel):
-    # Configs written before other services were supported call this elevenlabs_model.
+    # Also read from elevenlabs_model.
     model: str = Field(default="whisper-1", validation_alias=AliasChoices("model", "elevenlabs_model"))
     default_lang_from: str = "ja"
     # Request parameters sent to the service as they are, over baberu's defaults.
@@ -31,8 +31,8 @@ class ParsingSettings(BaseModel):
     hard_max_chars: int = 50
     hard_max_carryover: int = 15
     max_time_gap_sec: float = 2.0
-    # A drawn-out syllable can split a word across a pause (乾…杯). A tail this short
-    # is joined back onto its line, unless the pause is longer than fragment_max_gap_sec.
+    # A tail of this many letters or fewer is joined back onto its line (乾…杯),
+    # unless the pause is longer than fragment_max_gap_sec.
     fragment_max_letters: int = 2
     fragment_max_gap_sec: float = 5.0
     parsing_model: str = "gpt-4.1-mini"
@@ -44,8 +44,8 @@ class MistimedLineSettings(BaseModel):
     # How the fix stage gives time to lines shorter than the threshold:
     #   "backfill": they take the time before them (silence, or the line before's).
     #   "squeezed": only a line pressed against the next one, after a silence, starts
-    #               earlier, by about the time its letters take to say. Scribe v3 gets
-    #               starts right otherwise, so everything else is left to padding.
+    #               earlier, by about the time its letters take to say. Other lines
+    #               are left to padding.
     method: Literal["backfill", "squeezed"] = "backfill"
     squeezed_letters_per_sec: float = 8.0
     squeezed_min_sec: float = 0.3
@@ -67,8 +67,8 @@ class MistimedSegmentSettings(BaseModel):
     seg_foretrace_limit: int = 5
     seg_min_delay: float = 10.0
     seg_max_gap: int = 4
-    # The second pass cuts each clip this much wider on both sides, so the service hears
-    # some lead-in and lead-out. Words that land in the margin are dropped.
+    # The second pass cuts each clip this much wider on both sides. Words that land in
+    # the margin are dropped.
     clip_margin_sec: float = 1.0
 
 
@@ -103,7 +103,7 @@ class TranslationSettings(BaseModel):
 
 
 class KeytermSettings(BaseModel):
-    """Words sent to the transcription service so names and jargon come out right."""
+    """Names and jargon sent to the transcription service."""
     enabled: bool = True
     dir: str = Field(default="", validation_alias=AliasChoices("dir", "lists_dir"))  # empty: keyterms/ beside the config
     # A YouTube channel_id, mapped to the one file (<dir>/<name>.yaml) that holds every term for it.
@@ -113,10 +113,10 @@ class KeytermSettings(BaseModel):
     # Picks names out of the video's title and description. Empty: use the tags and lists only.
     llm_model: str = ""
     effort: str | None = "low"
-    # Scribe charges 20% more for keyterms, and above 100 bills every request for at least
-    # 20 seconds, which adds up over the short clips of a second pass.
+    # The most terms sent. Scribe charges 20% more for keyterms, and above 100 bills every
+    # request for at least 20 seconds.
     max_terms: int = Field(default=100, ge=1, le=1000)
-    confirm: bool = True       # show the list and wait, so keyterms.txt can be edited before paying
+    confirm: bool = True       # show the list and wait while keyterms.txt is reviewed
     retranscribe: bool = True  # send them on the second pass too
 
     @field_validator("channels", mode="before")
@@ -139,7 +139,7 @@ class NekoCapSettings(BaseModel):
     app_id: str = "nekocap042"
 
 
-# Sections a profile may change. The rest describe the user, not the transcript.
+# Sections a profile may change.
 PROFILE_SECTIONS = ("transcription", "parsing", "mistimed_lines", "mistimed_segs", "anomalies")
 
 
@@ -165,6 +165,6 @@ class Settings(BaseModel):
     translation: TranslationSettings = TranslationSettings()
     keyterms: KeytermSettings = KeytermSettings()
     nekocap: NekoCapSettings = NekoCapSettings()
-    # Scribe v1 was tuned with a low diarization threshold; newer models use the service's default.
+    # Scribe v1 uses a diarization threshold of 0.1; other models use the service's default.
     profiles: list[Profile] = [Profile(model="scribe_v1",
                                        settings={"transcription": {"options": {"diarization_threshold": 0.1}}})]

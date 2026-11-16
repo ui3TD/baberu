@@ -88,7 +88,7 @@ def load_metadata(path: Path) -> dict[str, Any]:
 
 
 def find_info_json(media_file: Path) -> Path | None:
-    """yt-dlp's --write-info-json puts <name>.info.json beside the download."""
+    """The <name>.info.json that yt-dlp's --write-info-json puts beside the download, or None."""
     candidate = media_file.with_name(f"{media_file.stem}.info.json")
     return candidate if candidate.is_file() else None
 
@@ -102,7 +102,7 @@ def from_metadata(info: dict[str, Any]) -> list[str]:
 # --- The channel's file ---
 
 class MissingChannelTerms(BaberuError):
-    """The channel has no keyterms file, so nothing is transcribed until one is made."""
+    """The channel has no keyterms file. Nothing is transcribed until one is made."""
 
 
 class ChannelTerms(BaseModel):
@@ -140,7 +140,7 @@ def load_channel(path: Path, channel_id: str | None = None) -> ChannelTerms:
 
 
 def digest(terms: list[str]) -> str:
-    """Identifies a set of listed terms, so a job notices when its channel's file changes."""
+    """A short hash that identifies a set of listed terms."""
     return hashlib.sha256("\n".join(terms).encode("utf-8")).hexdigest()[:16]
 
 

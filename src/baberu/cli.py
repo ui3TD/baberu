@@ -63,7 +63,7 @@ class RunRequest:
     keyterms_file: Path | None = None  # terms added to the channel's, from --keyterms
     use_keyterms: bool = True
     keyterms_dir: Path | None = None
-    review: bool = True  # pause so generated keyterms and context can be edited
+    review: bool = True  # pause for review of generated keyterms and context
 
 
 def _existing_file(value: str, description: str) -> Path:
@@ -246,7 +246,7 @@ def build_request(args, settings: Settings) -> RunRequest:
 
 
 def _tolerate_unicode_output() -> None:
-    """Keeps Japanese titles intact when output is piped, where Windows defaults to a legacy code page."""
+    """Writes piped output as UTF-8, and replaces characters the console can't show."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             if stream.isatty():

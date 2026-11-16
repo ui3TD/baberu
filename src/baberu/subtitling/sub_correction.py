@@ -168,11 +168,10 @@ def start_squeezed_lines_earlier(subtitles: SSAFile,
                                  line_range: LineRange | None = None) -> SSAFile:
     """Moves back the start of short lines that were pushed up against the next line.
 
-    A reaction like うわぁ！ after a pause can come back from Scribe v3 with almost no
-    length, ending right where the next line starts: its real start is earlier, in
-    the silence. Such a line starts earlier by about the time its letters take to
-    say, within limits, and never before the previous line ends. A short line with
-    silence after it keeps its start; padding gives it time after.
+    A short line that ends within `squeezed_touch_sec` of the next line starts
+    earlier by about the time its letters take to say, within limits, and never
+    before the previous line ends. A short line with silence after it keeps its
+    start.
     """
     events = subtitles.events
     first, last = (line_range.start, line_range.end) if line_range else (0, len(events) - 1)
@@ -184,7 +183,7 @@ def start_squeezed_lines_earlier(subtitles: SSAFile,
         if line.end - line.start > threshold or i + 1 >= len(events):
             continue
         if events[i + 1].start - line.end > touch:
-            continue  # silence after it: the start is right
+            continue  # silence after it: start kept
         earliest = events[i - 1].end if i > 0 else 0
         if line.start <= earliest:
             continue  # no silence before it to move into
@@ -264,7 +263,6 @@ def apply_timing_standards(subtitles: SSAFile,
         # Calculate the minimum duration required
         target_duration_ms = max((text_length / padding.max_cps) * 1000.0 if padding.max_cps > 0 else 0, padding.min_sec * 1000)
 
-        # Calculate the target end time
         target_end_time = current_subtitle.start + target_duration_ms
         max_target_end_time = current_subtitle.end + padding.max_lead_out_sec * 1000
         target_end_time = min(target_end_time, max_target_end_time)
@@ -289,12 +287,10 @@ def apply_timing_standards(subtitles: SSAFile,
         else:
             new_end_time = target_end_time
 
-        # Calculate the duration after forward extension
         new_duration = new_end_time - current_subtitle.start
         
         # If still too short, try backward extension
         if target_duration_ms > new_duration:    
-            # Calculate how much more time we need
             remaining_ms_needed = target_duration_ms - new_duration
             target_backward_ms = min(remaining_ms_needed, padding.max_lead_in_sec * 1000)
             
@@ -317,7 +313,7 @@ def apply_timing_standards(subtitles: SSAFile,
                 current_subtitle.start = int(new_start_time)
                 modified_count += 1
 
-        # Avoid rounding errors
+        # The end never moves earlier, and stays at least 1 ms after the start.
         final_new_end_time = max(current_subtitle.end, new_end_time)
         final_new_end_time = max(final_new_end_time, current_subtitle.start + 1)
 
@@ -405,7 +401,7 @@ def _expand_mistimed_group(subtitles: SSAFile,
     return added_indices
 
 def _letters(events: list[SSAEvent]) -> int:
-    """Spoken letters in these lines, at least one per line so every line gets some time."""
+    """Spoken letters in these lines, counting at least one per line."""
     return sum(max(1, letters(event.plaintext)) for event in events)
 
 
@@ -454,10 +450,10 @@ def _redistribute_backward(subtitles: SSAFile,
                            max_letters_per_sec: float | None = None) -> bool:
     """Gives a group of mistimed lines the time before them. Returns False if it left them alone.
 
-    With a limit, the group first takes only the gap after the previous line, so
-    that line keeps its timing and silence isn't handed to it. Only if the gap is
-    too short to say the group in does the previous line share its time, and only
-    if the two together can still be said within the limit.
+    With a limit, the group first takes only the gap after the previous line. If
+    the gap is too short to say the group in, or there is no limit, the previous
+    line shares its time, as long as the two together can still be said within
+    the limit.
     """
     previous = subtitles.events[prev_idx]
     lines = [subtitles.events[j] for j in group]

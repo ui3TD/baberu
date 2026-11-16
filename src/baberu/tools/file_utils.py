@@ -38,7 +38,7 @@ def kind_of(path: Path) -> FileKind:
 
 
 def supported_inputs() -> str:
-    """Lists the extensions baberu accepts as input, for error messages."""
+    """Lists the extensions baberu accepts as input."""
     kinds = (FileKind.VIDEO, FileKind.AUDIO, FileKind.TRANSCRIPT, FileKind.SUBTITLE)
     return " ".join(sorted(extension for kind in kinds for extension in _EXTENSIONS[kind]))
 
@@ -56,9 +56,7 @@ def is_url(text: str) -> bool:
 def atomic_path(target: Path) -> Iterator[Path]:
     """Gives a temporary path that becomes `target` only if the block succeeds.
 
-    An interrupted write therefore can't leave a half-written file that a
-    later run would trust. The temporary name keeps the extension because
-    ffmpeg and pysubs2 choose their format from it.
+    The temporary name keeps the target's extension.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f"{target.stem}.tmp-{os.getpid()}{target.suffix}")
@@ -70,7 +68,7 @@ def atomic_path(target: Path) -> Iterator[Path]:
 
 
 def _replace(source: Path, target: Path) -> None:
-    # Sync clients and antivirus can hold a new file open for a moment on Windows.
+    # Retries on PermissionError, after 0.1, 0.3 and 1 second.
     for delay in (0.1, 0.3, 1.0):
         try:
             os.replace(source, target)

@@ -14,7 +14,7 @@ class ClaudeProvider(LLMProvider):
     def __init__(self, api_key: str, model: str, system_prompt: str | None = None,
                  max_retries: int = 5, effort: str | None = None):
         super().__init__(api_key, model, system_prompt, max_retries, effort or "high")
-        # Retries are handled once, in LLMProvider.prompt.
+        # SDK retries are off; LLMProvider.complete retries.
         self.client = Anthropic(api_key=self.api_key, max_retries=0)
 
     def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
