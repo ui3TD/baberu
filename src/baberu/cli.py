@@ -250,7 +250,11 @@ def _run(args) -> None:
         log_dir=Path(log_dir_text) if log_dir_text else None,
     )
 
-    pipeline.run(build_request(args, settings), settings)
+    request = build_request(args, settings)
+    if args.diagnose:
+        pipeline.diagnose(request, settings)
+        return
+    pipeline.run(request, settings)
 
 
 def _describe(error: Exception) -> str:

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+import json
 import logging
 import shutil
 import sys
@@ -20,8 +21,8 @@ from baberu.settings import Settings, TranslationSettings
 from baberu.subtitling import sub_correction, sub_translation, sub_utils, translation_prompts
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
-from baberu.tools.file_utils import FileKind, atomic_path, file_hash, kind_of
-from baberu.transcription import transcript_chunked, transcript_conversion, transcript_segmented
+from baberu.tools.file_utils import FileKind, atomic_path, atomic_write_text, file_hash, kind_of
+from baberu.transcription import health, transcript_chunked, transcript_conversion, transcript_segmented
 
 if TYPE_CHECKING:
     from baberu.cli import RunRequest
@@ -540,6 +541,43 @@ def _deliver_stage_file(request: RunRequest, job: Job, produced: Path) -> Path:
     return target
 
 
+# --- Health ---
+
+def _write_health(transcript, job: Job, settings: Settings) -> dict:
+    """Saves the transcript's health, with the repairs made so far, beside the rest of the job."""
+    report = health.report(transcript, settings.anomalies)
+    atomic_write_text(job.folder / "health.json", json.dumps(report, ensure_ascii=False, indent=2))
+    return report
+
+
+def _log_health(report: dict | None) -> None:
+    if report is not None:
+        counts = report["anomaly_counts"]
+        logger.info("health: " + (", ".join(f"{kind} {count}" for kind, count in counts.items()) or "no anomalies"))
+    if health.repairs:
+        logger.info("repairs: " + ", ".join(f"{name} {count}" for name, count in health.repairs.items()))
+
+
+def diagnose(request: RunRequest, settings: Settings) -> Path:
+    """Reports a transcript's health without changing anything else. Costs nothing."""
+    if request.url:
+        raise BaberuError("--diagnose needs a transcript or a file with a work folder, not a URL.")
+    job = Job.locate(request.input_file, request.output_dir, request.lang_from, request.lang_to,
+                     legacy_name=legacy.job_name(request.input_file))
+    transcript_file = request.json_file or job.path(Stage.TRANSCRIPT)
+    if not transcript_file.exists():
+        raise BaberuError(f"--diagnose needs a transcript, and none was found for {request.input_file.name}.")
+
+    health.repairs.clear()
+    transcript = transcript_conversion.load_transcript_json(transcript_file)
+    report = _write_health(transcript, job, settings)
+    print(f"Health of {transcript_file}:", file=sys.stderr)
+    print(health.summary(report), file=sys.stderr)
+    result = job.folder / "health.json"
+    print(result)
+    return result
+
+
 # --- Running ---
 
 def _is_media_source(input_file: Path) -> bool:
@@ -577,6 +615,7 @@ def run(request: RunRequest, settings: Settings) -> None:
         return
 
     _clear_redone_work(request, job)
+    health.repairs.clear()
     if _is_media_source(input_file):
         job.set_source(input_file.name)
     job.save()
@@ -619,6 +658,8 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
         sub_data = _translate(sub_data, request, job, plan, line_range, settings.translation)
     if plan.action("pad"):
         sub_data = _pad(sub_data, job, line_range, settings)
+
+    _log_health(_write_health(transcript, job, settings) if transcript is not None else None)
 
     if plan.subtitle_target:
         results.append(_publish_subtitles(sub_data, job, plan.subtitle_target, request.overwrite))

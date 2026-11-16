@@ -12,7 +12,7 @@ from baberu.settings import MistimedSegmentSettings, ParsingSettings
 from baberu.subtitling import sub_utils, sub_correction
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
-from baberu.transcription import transcript_conversion, transcript_chunked
+from baberu.transcription import health, transcript_conversion, transcript_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ def find_segments(subtitles: SSAFile,
     mistimed_indices: set[int] = sub_correction.find_mistimed_lines(subtitles, threshold_duration, segs)
     groups: list[list[int]] = sub_correction.find_mistimed_groups(mistimed_indices, segs.seg_min_lines)
     ranges = [LineRange(group[0], group[-1]) for group in groups]
+    health.count_repair("line_detector_ranges", len(ranges))
 
     if ranges:
         _print_preview(ranges, subtitles, segs.seg_min_lines)
@@ -81,6 +82,7 @@ def transcribe_segments(subtitles: SSAFile,
             new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache)
             new_subtitles.shift(ms=start_time_ms)
             subtitles = sub_utils.splice(subtitles, line_range, new_subtitles)
+            health.count_repair("segments_retranscribed")
         except Exception as e:
             logger.error(f"Error during transcription for segment starting at {start_time_ms}ms: {e}")
             raise

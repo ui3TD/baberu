@@ -45,6 +45,20 @@ class MistimedSegmentSettings(BaseModel):
     seg_max_gap: int = 4
 
 
+class AnomalySettings(BaseModel):
+    """Limits for transcript problems. Physical limits, plus a multiple of the file's own median."""
+    smear_sec_per_letter: float = 2.5
+    smear_min_sec: float = 3.0
+    collapse_sec_per_letter: float = 0.02
+    collapse_min_tokens: int = 4
+    median_multiple: float = 10.0
+    loop_min_repeats: int = 5
+    loop_max_tokens: int = 6
+    low_confidence_logprob: float = -1.5
+    low_confidence_min_tokens: int = 3
+    disorder_tolerance_sec: float = 0.05
+
+
 class TranslationSettings(BaseModel):
     default_model: str = "gemini-2.5-pro"
     websearch_model: str = "gemini-2.5-pro"
@@ -67,4 +81,5 @@ class Settings(BaseModel):
     mistimed_lines: MistimedLineSettings = MistimedLineSettings()
     subtitle_padding: PaddingSettings = PaddingSettings()
     mistimed_segs: MistimedSegmentSettings = MistimedSegmentSettings()
+    anomalies: AnomalySettings = AnomalySettings()
     translation: TranslationSettings = TranslationSettings()

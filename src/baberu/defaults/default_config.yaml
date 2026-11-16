@@ -37,6 +37,20 @@ mistimed_segs:
   seg_min_delay: 10.0
   seg_max_gap: 4
 
+# Transcript problems reported by --diagnose and health.json. A token must break the
+# physical limit and also be median_multiple times away from the file's median.
+anomalies:
+  smear_sec_per_letter: 2.5      # held longer than this per letter...
+  smear_min_sec: 3.0             # ...and at least this long
+  collapse_sec_per_letter: 0.02  # squeezed shorter than this per letter...
+  collapse_min_tokens: 4         # ...for at least this many words in a row
+  median_multiple: 10.0
+  loop_min_repeats: 5
+  loop_max_tokens: 6
+  low_confidence_logprob: -1.5   # only used when the model's logprob varies
+  low_confidence_min_tokens: 3
+  disorder_tolerance_sec: 0.05
+
 translation:
   default_model: "gemini-2.5-pro"
   websearch_model: "gemini-2.5-pro"

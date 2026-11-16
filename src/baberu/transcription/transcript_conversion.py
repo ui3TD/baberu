@@ -17,6 +17,7 @@ from baberu.constants import CONTINUE_FLAG
 from baberu.settings import ParsingSettings
 from baberu.subtitling.types import SubtitleLine
 from baberu.tools.file_utils import atomic_write_text
+from baberu.transcription.health import count_repair
 
 logger = logging.getLogger(__name__)
 
@@ -188,10 +189,13 @@ def _count_carryover_words(words: list[TranscribedWord],
         response = ""
         try:
             response = get_splitter(text.strip())
-            return _words_in_second_line(words, text, response)
+            count = _words_in_second_line(words, text, response)
+            count_repair("line_split_by_model")
+            return count
         except Exception as e:
             logger.warning(f"Warning: AI split failed: '{e}'\nAPI response: {response}\nOriginal:    {text}")
 
+    count_repair("line_split_by_length")
     carryover_chars = 0
     carryover_words = 0
     for word in reversed(words):
@@ -254,7 +258,10 @@ def _clean_subtitle_line(line: SubtitleLine, remove_text: list[str]) -> Subtitle
     line_text = line_text.strip()
 
     # Truncate repeated characters (5+ occurrences)
-    line_text = re.sub(r'(.{1,6}?)(\1{4,})', r'\1\1\1', line_text)
+    truncated = re.sub(r'(.{1,6}?)(\1{4,})', r'\1\1\1', line_text)
+    if truncated != line_text:
+        count_repair("repeat_truncated")
+    line_text = truncated
 
     line.text = line_text
     return line

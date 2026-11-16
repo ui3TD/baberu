@@ -5,6 +5,7 @@ import logging
 
 from baberu.settings import MistimedSegmentSettings, PaddingSettings
 from baberu.subtitling.types import LineRange
+from baberu.transcription.health import count_repair
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,7 @@ def fix_mistimed_lines(subtitles: SSAFile,
             if min(group) <= segment_end and max(group) >= segment_start
         ]
 
+    count_repair("mistimed_line_groups_fixed", len(groups))
     # Process each group of consecutive short subtitles
     for group in groups:            
         # Find adjacent non-short subtitles for regular groups
@@ -283,6 +285,7 @@ def apply_timing_standards(subtitles: SSAFile,
                 current_subtitle.end = pysubs2.time.times_to_ms(ms=final_new_end_time)
                 modified_count += 1
 
+    count_repair("lines_padded", modified_count)
     if modified_count > 0:
         logger.debug(f"Extended {modified_count} subtitle(s) to meet max CPS of {padding.max_cps}")
     else:

@@ -43,6 +43,8 @@ def init_parser() -> ArgumentParser:
     options.add_argument('--redo', action='append', default=[], choices=REDO_CHOICES, metavar='STAGE',
                          help=f"Throw away a stage's saved work and do it again: {', '.join(REDO_CHOICES)}")
     options.add_argument('--dry-run', action='store_true', help='Show what would happen, without doing or spending anything')
+    options.add_argument('--diagnose', action='store_true',
+                         help="Report a transcript's timing problems and save health.json in the work folder (free)")
     options.add_argument('--config', metavar='FILE', help='Use this config file')
     options.add_argument('--debug', action='store_true', help='Show detailed logs, and a traceback on errors')
 
