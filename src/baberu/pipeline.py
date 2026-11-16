@@ -137,7 +137,9 @@ def _build_plan(request: RunRequest, job: Job, input_file: Path, video: Path | N
 
     has_transcript = any(s.name == "transcribe" for s in stages) or bool(request.json_file)
     if request.convert and has_transcript:
-        action = RUN if request.json_file else _reuse_or_run(request, job, "convert", job.path(Stage.RAW))
+        # A new transcript makes the old lines stale, so they are converted again.
+        transcribing = any(s.name == "transcribe" and s.action == RUN for s in stages)
+        action = RUN if request.json_file or transcribing else _reuse_or_run(request, job, "convert", job.path(Stage.RAW))
         stages.append(PlannedStage("convert", action))
 
     has_subtitles = bool(request.sub_file) or any(s.name == "convert" for s in stages)
@@ -285,13 +287,13 @@ def _shift(line_range: LineRange | None, before: int, sub_data: SSAFile) -> Line
     return line_range.resized(len(sub_data.events) - before) if line_range else None
 
 
-def _guard_paid_work(job: Job, output: Path, source: str, model: str | None, redo_name: str) -> None:
-    """Refuses to reuse, or silently replace, paid work that no longer matches."""
+def _guard_paid_work(job: Job, output: Path, source: str | None, model: str | None, redo_name: str) -> None:
+    """Refuses to reuse, or silently replace, paid work that no longer matches. A `source` of None isn't checked."""
     origin = job.origin_of(output)
     if origin is None:
         logger.warning(f"{output.name} has no record of what it was made from; using it as is.")
         return
-    if origin["source"] != source:
+    if source is not None and origin["source"] != source:
         raise BaberuError(
             f"{output.name} was made from different subtitles. "
             f"Use --redo {redo_name} to do it again, which costs money.")
@@ -318,14 +320,18 @@ def _extract(video_file: Path, job: Job, action: str) -> Path:
 
 def _transcribe(audio_file: Path | None, job: Job, action: str, lang: str, settings: Settings):
     json_file = job.path(Stage.TRANSCRIPT)
+    model = settings.transcription.model
     if action == REUSE:
+        _guard_paid_work(job, json_file, None, model, "transcribe")
         _announce_reuse("transcribe", json_file)
         return transcript_conversion.load_transcript_json(json_file)
 
-    logger.info("transcribe: sending audio to the transcription service...")
-    provider = AIToolFactory.get_transcription_provider(settings.transcription.model)
+    logger.info(f"transcribe: sending audio to the transcription service ({model})...")
+    provider = AIToolFactory.get_transcription_provider(model)
     transcript, json_data = transcript_chunked.transcribe_file(audio_file, provider, lang)
     transcript_conversion.write_transcript_json(json_data, json_file)
+    job.record_origin(json_file, audio_file.name, model, provider.request_options())
+    job.save()
     logger.info("transcribe: done")
     return transcript
 
@@ -336,7 +342,9 @@ def _convert(transcript, job: Job, action: str, settings: Settings) -> SSAFile:
         _announce_reuse("convert", output)
         return sub_utils.load(output)
 
-    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, settings.parsing)
+    splits = job.load_splits()
+    sub_data = transcript_conversion.convert_transcript_to_subs(transcript, settings.parsing, splits)
+    job.save_splits(splits)
     sub_utils.write(sub_data, output)
     logger.info(f"convert: {len(sub_data.events)} lines")
     return sub_data
@@ -369,9 +377,11 @@ def _twopass(sub_data: SSAFile,
 
     if ranges:
         logger.info(f"retranscribe: transcribing {len(ranges)} segment(s) again...")
+        splits = job.load_splits()
         sub_data = transcript_segmented.transcribe_segments(
             subtitles=sub_data, ranges=ranges, audio_file=audio_file, job=job, lang=lang,
-            parsing=settings.parsing, transcription_model=settings.transcription.model)
+            parsing=settings.parsing, transcription_model=settings.transcription.model, split_cache=splits)
+        job.save_splits(splits)
         sub_data = sub_correction.remove_empty(sub_data)
     else:
         logger.info("retranscribe: no badly timed segments found")

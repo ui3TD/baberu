@@ -20,10 +20,21 @@ class ScribeProvider(TranscriptionProvider):
             api_key=self.api_key,
         )
 
+    def request_options(self) -> dict[str, Any]:
+        return {
+            "tag_audio_events": False,
+            "diarize": True,
+            "diarization_threshold": 0.1,
+            "timestamps_granularity": "word",
+            "segment_on_silence_longer_than_s": 2.0,
+        }
+
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
         self.logger.debug(f"Transcribing audio from {audio_file}...")
         
         lang = kwargs.get("lang", None)
+        options = self.request_options()
+        silence = options.pop("segment_on_silence_longer_than_s")
         
         with open(audio_file, 'rb') as f:
             audio_data: BytesIO = BytesIO(f.read())
@@ -31,17 +42,14 @@ class ScribeProvider(TranscriptionProvider):
         transcription: SpeechToTextChunkResponseModel = self.client.speech_to_text.convert(
             file=audio_data,
             model_id=self.model,
-            tag_audio_events=False,
             language_code=lang,
-            diarize=True,
-            diarization_threshold=0.1,
-            timestamps_granularity="word",
             additional_formats= [ExportOptions_SegmentedJson(
                 include_speakers=True,
                 include_timestamps=True,
-                segment_on_silence_longer_than_s=2.0
+                segment_on_silence_longer_than_s=silence
             )],
-            request_options = {"timeout_in_seconds": 3600}
+            request_options = {"timeout_in_seconds": 3600},
+            **options,
         )
         self.logger.debug(f"ElevenLabs API response: {transcription.model_dump_json()}")
 

@@ -35,6 +35,10 @@ class TranscriptionProvider(ABC):
         self.logger = logging.getLogger(__name__)
         self.max_size_bytes: int | None = None
     
+    def request_options(self) -> dict[str, Any]:
+        """The settings sent with each request, as plain JSON, for the job's records."""
+        return {}
+
     @abstractmethod
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
         """

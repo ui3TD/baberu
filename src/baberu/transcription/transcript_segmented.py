@@ -37,23 +37,30 @@ def transcribe_segments(subtitles: SSAFile,
                         job: Job,
                         lang: str,
                         parsing: ParsingSettings,
-                        transcription_model: str) -> SSAFile:
+                        transcription_model: str,
+                        split_cache: dict[str, str] | None = None) -> SSAFile:
     """Re-transcribes the audio behind each range and replaces those subtitles."""
     if not ranges:
         return subtitles
 
-    transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+    transcript_provider = None
 
     # Work backwards so replacing one range doesn't move the ones still to do.
     for line_range in sorted(ranges, key=lambda r: r.start, reverse=True):
         start_time_ms = subtitles.events[line_range.start].start
         end_time_ms = subtitles.events[line_range.end].end
 
-        output_file: Path = job.segment(start_time_ms, end_time_ms)
+        output_file: Path = job.segment(start_time_ms, end_time_ms, transcription_model)
 
         if output_file.exists():
-            subtitles = sub_utils.splice(subtitles, line_range, sub_utils.load(output_file))
+            transcript = transcript_conversion.load_transcript_json(output_file)
+            new_subtitles = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache)
+            new_subtitles.shift(ms=start_time_ms)
+            subtitles = sub_utils.splice(subtitles, line_range, new_subtitles)
             continue
+
+        if transcript_provider is None:
+            transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
 
         start_time_sec = start_time_ms / 1000.0
         duration_sec = (end_time_ms - start_time_ms) / 1000.0
@@ -69,10 +76,10 @@ def transcribe_segments(subtitles: SSAFile,
             continue
 
         try:
-            transcript, _ = transcript_chunked.transcribe_file(temp_audio_path, transcript_provider, lang)
-            new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(transcript, parsing)
+            transcript, json_data = transcript_chunked.transcribe_file(temp_audio_path, transcript_provider, lang)
+            transcript_conversion.write_transcript_json(json_data, output_file)
+            new_subtitles: SSAFile = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache)
             new_subtitles.shift(ms=start_time_ms)
-            sub_utils.write(new_subtitles, output_file)
             subtitles = sub_utils.splice(subtitles, line_range, new_subtitles)
         except Exception as e:
             logger.error(f"Error during transcription for segment starting at {start_time_ms}ms: {e}")

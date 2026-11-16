@@ -1,5 +1,6 @@
 from collections.abc import Callable
 import functools
+import hashlib
 import json
 from pysubs2 import SSAFile, SSAEvent
 from typing import Any
@@ -37,10 +38,35 @@ def load_transcript_json(json_file: Path) -> TranscriptionResult:
     provider_type = AIToolFactory.get_transcription_provider_type(model)
     return provider_type.parse(provider_type.validate(json_data))
 
-def convert_transcript_to_subs(transcript: TranscriptionResult, parsing: ParsingSettings) -> SSAFile:
-    """Turns word-level timings into subtitle lines using delimiters and length limits."""
+def split_key(model: str, text: str) -> str:
+    """Identifies one line-split question, so its answer can be reused."""
+    return hashlib.sha256(f"{model}\n{text}".encode("utf-8")).hexdigest()[:24]
+
+def _split_asker(parsing: ParsingSettings, split_cache: dict[str, str] | None) -> Callable[[str], str]:
+    """Asks the parsing model where to split a line, remembering answers in `split_cache`."""
     get_splitter: Callable[[], LLMProvider] = functools.cache(lambda: AIToolFactory.get_llm_provider(
         model_name=parsing.parsing_model, system_prompt=SPLIT_SYSTEM_PROMPT))
+    cache = split_cache if split_cache is not None else {}
+
+    def ask(text: str) -> str:
+        key = split_key(parsing.parsing_model, text)
+        if key not in cache:
+            logger.debug(f"Using AI to split line: '{text}'")
+            cache[key] = get_splitter().prompt(f"{SPLIT_USER_PROMPT}\n{text}")
+        return cache[key]
+
+    return ask
+
+def convert_transcript_to_subs(transcript: TranscriptionResult,
+                               parsing: ParsingSettings,
+                               split_cache: dict[str, str] | None = None) -> SSAFile:
+    """Turns word-level timings into subtitle lines using delimiters and length limits.
+
+    `split_cache` holds the parsing model's answers by question; pass the same dict
+    each time so converting again neither costs money nor changes the lines.
+    """
+    get_splitter = _split_asker(parsing, split_cache)
+    transcript = transcript.model_copy(deep=True)  # Line building edits words; the caller's stay as they were.
     all_lines: list[SubtitleLine] = []
 
     for segment in transcript.segments:
@@ -67,7 +93,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult, parsing: Parsing
 
 def _delimit_segment(segment: TranscribedSegment,
                      parsing: ParsingSettings,
-                     get_splitter: Callable[[], LLMProvider]) -> list[SubtitleLine]:
+                     get_splitter: Callable[[str], str]) -> list[SubtitleLine]:
     """Merges a list of word objects into formatted subtitle lines."""
     delimiters = parsing.delimiters
     soft_delimiters = parsing.soft_delimiters
@@ -156,13 +182,12 @@ def _delimit_segment(segment: TranscribedSegment,
 def _count_carryover_words(words: list[TranscribedWord],
                            text: str,
                            parsing: ParsingSettings,
-                           get_splitter: Callable[[], LLMProvider]) -> int:
+                           get_splitter: Callable[[str], str]) -> int:
     """Decides how many trailing words move to the next subtitle line."""
     if parsing.parsing_model:
         response = ""
         try:
-            logger.debug(f"Using AI to split line: '{text.strip()}'")
-            response = get_splitter().prompt(f"{SPLIT_USER_PROMPT}\n{text.strip()}")
+            response = get_splitter(text.strip())
             return _words_in_second_line(words, text, response)
         except Exception as e:
             logger.warning(f"Warning: AI split failed: '{e}'\nAPI response: {response}\nOriginal:    {text}")

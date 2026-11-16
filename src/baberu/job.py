@@ -7,7 +7,8 @@ by reading a file's name back.
     show.baberu/
       manifest.json
       audio.ogg  transcript.json  raw.ass  2pass.ass  fixed.ass  padded.ass
-      segments/<start>-<end>.ass
+      splits.json   (line-split decisions, so re-converting costs nothing)
+      segments/<start>-<end>.<model>.json
       en/  context.txt  partial.txt  translated.ass  padded.ass
       lines-5-10/   (the same structure, for a --lines run)
 """
@@ -16,6 +17,7 @@ from enum import Enum
 import json
 import logging
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 
@@ -143,8 +145,25 @@ class Job:
                     return entry
         return None
 
-    def segment(self, start_ms: int, end_ms: int) -> Path:
-        return self.folder / "segments" / f"{start_ms}-{end_ms}.ass"
+    def segment(self, start_ms: int, end_ms: int, model: str) -> Path:
+        """Where a retranscribed piece of audio is kept. Named by model, so a new model never reuses old work."""
+        slug = re.sub(r"[^A-Za-z0-9._-]", "_", model)
+        return self.folder / "segments" / f"{start_ms}-{end_ms}.{slug}.json"
+
+    @property
+    def splits_path(self) -> Path:
+        return self.folder / "splits.json"
+
+    def load_splits(self) -> dict[str, str]:
+        """Line-split answers from earlier conversions, keyed by model and text."""
+        try:
+            return json.loads(self.splits_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def save_splits(self, splits: dict[str, str]) -> None:
+        if splits:
+            atomic_write_text(self.splits_path, json.dumps(splits, ensure_ascii=False, indent=2))
 
     def result_path(self, input_file: Path, last_stage: str) -> Path:
         """The name of the file handed back to the user."""
@@ -204,12 +223,16 @@ class Job:
     def set_source(self, source_name: str) -> None:
         self.manifest["source"] = source_name
 
-    def origin_of(self, path: Path) -> dict[str, str] | None:
+    def origin_of(self, path: Path) -> dict[str, Any] | None:
         """What a paid stage's file was made from, if that was recorded."""
         return self.manifest.get("made_from", {}).get(self._key(path))
 
-    def record_origin(self, path: Path, source: str, model: str | None = None) -> None:
-        self.manifest.setdefault("made_from", {})[self._key(path)] = {"source": source, "model": model}
+    def record_origin(self, path: Path, source: str, model: str | None = None,
+                      options: dict[str, Any] | None = None) -> None:
+        record: dict[str, Any] = {"source": source, "model": model}
+        if options is not None:
+            record["options"] = options
+        self.manifest.setdefault("made_from", {})[self._key(path)] = record
 
     def published_hash(self, name: str) -> str | None:
         return self.manifest.get("published", {}).get(name)
