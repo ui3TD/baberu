@@ -1,4 +1,6 @@
 """The shape of config.yaml. A setting left out of the file uses the default here."""
+from typing import Any
+
 from pydantic import AliasChoices, BaseModel, Field
 
 
@@ -12,8 +14,11 @@ class TranscriptionSettings(BaseModel):
     # Configs written before other services were supported call this elevenlabs_model.
     model: str = Field(default="whisper-1", validation_alias=AliasChoices("model", "elevenlabs_model"))
     default_lang_from: str = "ja"
-    # The second pass can use a different model. Empty means the same as `model`.
+    # Request parameters sent to the service as they are, over baberu's defaults.
+    options: dict[str, Any] = {}
+    # The second pass can use a different model and options. Empty means the same as the first.
     retranscribe_model: str = ""
+    retranscribe_options: dict[str, Any] | None = None
     # Which anomalies send audio to be transcribed again (paid).
     retranscribe_kinds: list[str] = ["smear", "collapse", "loop"]
 
@@ -78,6 +83,20 @@ class TranslationSettings(BaseModel):
     confirm_auto_context: bool = True
 
 
+# Sections a profile may change. The rest describe the user, not the transcript.
+PROFILE_SECTIONS = ("transcription", "parsing", "mistimed_lines", "mistimed_segs", "anomalies")
+
+
+class Profile(BaseModel):
+    """Settings for one model or source language, laid over the rest of the config."""
+    model: str = ""      # applies when this text is part of transcription.model; empty matches any
+    lang: str = ""       # applies to this source language; empty matches any
+    settings: dict[str, dict[str, Any]] = {}
+
+    def matches(self, model: str, lang: str) -> bool:
+        return self.model.lower() in model.lower() and (not self.lang or self.lang.lower() == lang.lower())
+
+
 class Settings(BaseModel):
     working_dir: str = ""
     logging: LoggingSettings = LoggingSettings()
@@ -88,3 +107,6 @@ class Settings(BaseModel):
     mistimed_segs: MistimedSegmentSettings = MistimedSegmentSettings()
     anomalies: AnomalySettings = AnomalySettings()
     translation: TranslationSettings = TranslationSettings()
+    # Scribe v1 was tuned with a low diarization threshold; newer models use the service's default.
+    profiles: list[Profile] = [Profile(model="scribe_v1",
+                                       settings={"transcription": {"options": {"diarization_threshold": 0.1}}})]

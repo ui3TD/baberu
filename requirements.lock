@@ -8,7 +8,7 @@ colorama==0.4.6
 cryptography==50.0.2
 distro==1.9.0
 docstring-parser==0.18.0
-elevenlabs==2.77.0
+elevenlabs==2.78.0
 ffmpeg-python==0.2.0
 future==1.0.0
 google-auth==2.62.1

@@ -251,6 +251,7 @@ def _run(args) -> None:
     )
 
     request = build_request(args, settings)
+    settings = config_setup.apply_profiles(settings, request.lang_from)
     if args.diagnose:
         pipeline.diagnose(request, settings)
         return

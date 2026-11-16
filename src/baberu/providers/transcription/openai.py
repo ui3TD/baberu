@@ -8,8 +8,8 @@ from typing import Any
 import logging
 
 class WhisperProvider(WritableTranscriptionProvider):
-    def __init__(self, api_key: str, model: str):
-        super().__init__(api_key, model)
+    def __init__(self, api_key: str, model: str, options: dict[str, Any] | None = None):
+        super().__init__(api_key, model, options)
         self.client: OpenAI = OpenAI(
             api_key=self.api_key,
         )
@@ -34,7 +34,8 @@ class WhisperProvider(WritableTranscriptionProvider):
                 language=lang,
                 response_format="verbose_json",
                 timestamp_granularities=["word", "segment"],
-                timeout = 3600
+                timeout = 3600,
+                **self.options,
             )
         self.logger.debug(f"OpenAI API response: {transcription.model_dump_json()}")
         return transcription.model_dump()

@@ -107,7 +107,7 @@ def second_pass(tmp_path, monkeypatch):
     """Audio cutting is skipped; the transcriber returns one 2-second line, "hello"."""
     transcriber = FakeTranscriber()
     monkeypatch.setattr("baberu.providers.factory.AIToolFactory.get_transcription_provider",
-                        staticmethod(lambda model: transcriber))
+                        staticmethod(lambda model, options=None: transcriber))
     monkeypatch.setattr("baberu.tools.av_utils.cut_audio", lambda *a: None)
     job = Job.locate(tmp_path / "show.mp4", tmp_path, "ja", "en")
 

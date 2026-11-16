@@ -27,22 +27,23 @@ class TranscriptionResult(pydantic.BaseModel):
 
 class TranscriptionProvider(ABC):
     """Abstract base class for all transcription providers."""
-    def __init__(self, api_key: str, model: str):
-        """Initializes the LLM provider.
+    def __init__(self, api_key: str, model: str, options: dict[str, Any] | None = None):
+        """Initializes the transcription provider.
 
         Args:
-            api_key: The API key for the LLM provider.
+            api_key: The API key for the service.
             model: The specific model to be used.
-            system_prompt: An optional default system prompt for all requests.
+            options: Request parameters passed to the service as they are, over the provider's defaults.
         """
         self.api_key = api_key
         self.model = model
+        self.options: dict[str, Any] = dict(options or {})
         self.logger = logging.getLogger(__name__)
         self.max_size_bytes: int | None = None
     
     def request_options(self) -> dict[str, Any]:
         """The settings sent with each request, as plain JSON, for the job's records."""
-        return {}
+        return dict(self.options)
 
     @abstractmethod
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
@@ -73,8 +74,8 @@ class WritableTranscriptionProvider(TranscriptionProvider):
     An ABC for providers that ALSO support converting a standard transcript
     back into the provider's specific format.
     """
-    def __init__(self, api_key: str, model: str):
-        super().__init__(api_key, model)
+    def __init__(self, api_key: str, model: str, options: dict[str, Any] | None = None):
+        super().__init__(api_key, model, options)
 
     @staticmethod
     @abstractmethod

@@ -107,7 +107,7 @@ def workspace(tmp_path, monkeypatch, fake_llms):
 def media(workspace, monkeypatch):
     """Adds show.mp4, and stands in for ffmpeg and the transcription service."""
     transcriber = FakeTranscriber()
-    monkeypatch.setattr(AIToolFactory, "get_transcription_provider", staticmethod(lambda model: transcriber))
+    monkeypatch.setattr(AIToolFactory, "get_transcription_provider", staticmethod(lambda model, options=None: transcriber))
 
     def fake_extract(video, output):
         output.parent.mkdir(parents=True, exist_ok=True)

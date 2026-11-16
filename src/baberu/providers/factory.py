@@ -71,10 +71,11 @@ class AIToolFactory:
         return route.provider_class()(api_key=_api_key(route), model=model_name, system_prompt=system_prompt, **options)
 
     @staticmethod
-    def get_transcription_provider(model_name: str) -> transcription_base.TranscriptionProvider:
-        """Creates the audio transcription provider for a model."""
+    def get_transcription_provider(model_name: str,
+                                   options: dict[str, Any] | None = None) -> transcription_base.TranscriptionProvider:
+        """Creates the audio transcription provider for a model. `options` are sent with every request."""
         route = _find_route(_TRANSCRIPTION_ROUTES, model_name, "transcription")
-        return route.provider_class()(api_key=_api_key(route), model=model_name)
+        return route.provider_class()(api_key=_api_key(route), model=model_name, options=options)
 
     @staticmethod
     def get_transcription_provider_type(model_name: str) -> type[transcription_base.TranscriptionProvider]:

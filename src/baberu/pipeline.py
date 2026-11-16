@@ -229,9 +229,9 @@ def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None
     """Building a provider needs its key but makes no request."""
     try:
         if plan.action("transcribe") == RUN:
-            AIToolFactory.get_transcription_provider(settings.transcription.model)
+            AIToolFactory.get_transcription_provider(settings.transcription.model, settings.transcription.options)
         if plan.action("retranscribe") == RUN:
-            AIToolFactory.get_transcription_provider(_retranscribe_model(settings))
+            AIToolFactory.get_transcription_provider(_retranscribe_model(settings), _retranscribe_options(settings))
         if plan.action("translate") == RUN:
             AIToolFactory.get_llm_provider(request.model)
         if plan.action("context") == RUN:
@@ -306,6 +306,19 @@ def _guard_paid_work(job: Job, output: Path, source: str | None, model: str | No
             f"Use --redo {redo_name} to do it again, which costs money.")
 
 
+def _guard_options(job: Job, output: Path, options: dict, redo_name: str) -> None:
+    """Refuses to reuse a transcript made with different request options than the config now asks for."""
+    origin = job.origin_of(output)
+    recorded = (origin or {}).get("options")
+    if recorded is None:
+        return
+    changed = sorted(key for key, value in options.items() if recorded.get(key) != value)
+    if changed:
+        raise BaberuError(
+            f"{output.name} was made with different {', '.join(changed)}. "
+            f"Use --redo {redo_name} to do it again, which costs money.")
+
+
 def _extract(video_file: Path, job: Job, action: str) -> Path:
     existing = job.find_audio()
     if action == REUSE and existing:
@@ -324,13 +337,15 @@ def _extract(video_file: Path, job: Job, action: str) -> Path:
 def _transcribe(audio_file: Path | None, job: Job, action: str, lang: str, settings: Settings):
     json_file = job.path(Stage.TRANSCRIPT)
     model = settings.transcription.model
+    options = settings.transcription.options
     if action == REUSE:
         _guard_paid_work(job, json_file, None, model, "transcribe")
+        _guard_options(job, json_file, options, "transcribe")
         _announce_reuse("transcribe", json_file)
         return transcript_conversion.load_transcript_json(json_file)
 
     logger.info(f"transcribe: sending audio to the transcription service ({model})...")
-    provider = AIToolFactory.get_transcription_provider(model)
+    provider = AIToolFactory.get_transcription_provider(model, options)
     transcript, json_data = transcript_chunked.transcribe_file(audio_file, provider, lang)
     transcript_conversion.write_transcript_json(json_data, json_file)
     job.record_origin(json_file, audio_file.name, model, provider.request_options())
@@ -355,6 +370,11 @@ def _convert(transcript, job: Job, action: str, settings: Settings) -> SSAFile:
 
 def _retranscribe_model(settings: Settings) -> str:
     return settings.transcription.retranscribe_model or settings.transcription.model
+
+
+def _retranscribe_options(settings: Settings) -> dict:
+    options = settings.transcription.retranscribe_options
+    return settings.transcription.options if options is None else options
 
 
 def _twopass(sub_data: SSAFile,
@@ -397,7 +417,8 @@ def _twopass(sub_data: SSAFile,
         splits = job.load_splits()
         sub_data = transcript_segmented.transcribe_segments(
             subtitles=sub_data, ranges=ranges, audio_file=audio_file, job=job, lang=lang,
-            parsing=settings.parsing, transcription_model=model, split_cache=splits,
+            parsing=settings.parsing, transcription_model=model, options=_retranscribe_options(settings),
+            split_cache=splits,
             limits=settings.anomalies, kinds=kinds, anomalies=anomalies,
             short_line_sec=segs.mistimed_seg_thresh_sec, always_accept=bool(line_range))
         job.save_splits(splits)

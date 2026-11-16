@@ -16,20 +16,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ScribeProvider(TranscriptionProvider):
-    def __init__(self, api_key: str, model: str):
-        super().__init__(api_key, model)
+    # What baberu has always asked for. `options` from config.yaml go on top, so any
+    # parameter of the speech-to-text API (num_speakers, no_verbatim, keyterms,
+    # numbers_format...) can be tried without a code change.
+    DEFAULTS: dict[str, Any] = {
+        "tag_audio_events": False,
+        "diarize": True,
+        "timestamps_granularity": "word",
+        "segment_on_silence_longer_than_s": 2.0,  # for segmented_json, which marks line breaks
+    }
+
+    def __init__(self, api_key: str, model: str, options: dict[str, Any] | None = None):
+        super().__init__(api_key, model, options)
         self.client: ElevenLabs = ElevenLabs(
             api_key=self.api_key,
         )
 
     def request_options(self) -> dict[str, Any]:
-        return {
-            "tag_audio_events": False,
-            "diarize": True,
-            "diarization_threshold": 0.1,
-            "timestamps_granularity": "word",
-            "segment_on_silence_longer_than_s": 2.0,
-        }
+        return {**self.DEFAULTS, **self.options}
 
     def transcribe(self, audio_file: Path, **kwargs) -> dict[str, Any]:
         self.logger.debug(f"Transcribing audio from {audio_file}...")

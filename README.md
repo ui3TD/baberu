@@ -13,7 +13,7 @@ This is a hobbyist project. No contributions will be accepted. Features are subj
     *   **`extract`:** Pulls audio from video files.
     *   **`speech-to-text`:** Transcribes audio to a text file using an external API.
     *   **`convert`:** Generates timed `.ass` subtitles from a transcript, leveraging an LLM to break long lines.
-    *   **`retranscribe`:** Improves accuracy by re-processing low-confidence segments (two-pass).
+    *   **`retranscribe`:** Transcribes again the stretches whose timing looks wrong, and keeps the second pass only where it is better (two-pass).
     *   **`fix`:** Applies automated corrections for common timing issues.
     *   **`translate`:** Translates subtitles using an LLM with user-provided or auto-generated grounded context.
     *   **`pad`:** Adjusts subtitle timings to meet readability standards (CPS, lead-in/out).
@@ -153,6 +153,7 @@ baberu show.mp4 --redo translate
 | `--lang-from CODE`, `--lang-to CODE` | Source and target language |
 | `--lines 5-20` | Work on only these lines, leaving the rest unchanged |
 | `--dry-run` | Show the plan without doing or spending anything |
+| `--diagnose` | Report a transcript's timing problems and save `health.json` in the work folder (free) |
 | `--config FILE` | Use this config file |
 | `--debug` | Show detailed logs, and a traceback on errors |
 
@@ -180,6 +181,28 @@ baberu my_video.mp4 -A --hardcode -o my_video.subbed.mp4
 # Try another translation model
 baberu show.mp4 --model claude-opus-5-5 --redo translate
 ```
+
+### Comparing transcription models
+
+Every run saves `health.json` in the work folder: a profile of the transcript (token sizes, durations, gaps, speakers, whether confidence varies), its anomalies with times, and how often each repair fired. The anomalies are:
+
+| Kind | Meaning |
+|---|---|
+| `smear` | A token held far longer than its letters could take to say |
+| `collapse` | Several words squeezed into almost no time |
+| `loop` | The same few tokens repeated (numbers never count) |
+| `disorder` | Missing, backwards or overlapping timestamps |
+| `low_confidence` | Unsure words, only when the model's confidence varies at all |
+
+`--diagnose` prints the same report for a transcript without spending anything. To compare models, transcribe the same file into separate folders and compare the two reports:
+
+```bash
+baberu show.mp4 -s -d v1 --config config.v1.yaml
+baberu show.mp4 -s -d v3 --config config.v3.yaml
+baberu v3/show.baberu/transcript.json --diagnose
+```
+
+Conversion fixes smears and collapses for free; `retranscribe` sends whatever it couldn't fix, and runs of very short lines, to be transcribed again. Limits live under `anomalies:` in the config, request parameters under `transcription.options`, and settings for one model or language under `profiles:`. A job remembers which model and options made its transcript and stops if they change; use `--redo transcribe`.
 
 ### Upgrading from earlier versions
 

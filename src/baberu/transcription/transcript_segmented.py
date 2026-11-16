@@ -72,6 +72,7 @@ def transcribe_segments(subtitles: SSAFile,
                         lang: str,
                         parsing: ParsingSettings,
                         transcription_model: str,
+                        options: dict | None = None,
                         split_cache: dict[str, str] | None = None,
                         limits: AnomalySettings | None = None,
                         kinds: tuple[str, ...] = (),
@@ -101,7 +102,7 @@ def transcribe_segments(subtitles: SSAFile,
             transcript = transcript_conversion.load_transcript_json(output_file)
         else:
             if transcript_provider is None:
-                transcript_provider = AIToolFactory.get_transcription_provider(transcription_model)
+                transcript_provider = AIToolFactory.get_transcription_provider(transcription_model, options)
             transcript = _transcribe_audio(audio_file, start_time_ms, end_time_ms, transcript_provider, lang, output_file)
             if transcript is None:
                 continue

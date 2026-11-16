@@ -1,4 +1,6 @@
 from baberu.constants import CONFIG_FILE_NAME
+from baberu.errors import BaberuError
+from baberu.settings import PROFILE_SECTIONS, Settings
 from baberu.constants import TEMPLATE_CONFIG_FILE_NAME
 from baberu.tools import file_utils
 from baberu.constants import APP_NAME
@@ -11,6 +13,35 @@ import importlib.resources
 import logging
 from pathlib import Path
 from typing import Any
+
+def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Overlay wins; nested tables merge instead of replacing each other."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def apply_profiles(settings: Settings, lang: str) -> Settings:
+    """Lays every matching profile over the settings, in the order they are listed."""
+    model = settings.transcription.model
+    matching = [profile for profile in settings.profiles if profile.matches(model, lang)]
+    if not matching:
+        return settings
+
+    data = settings.model_dump()
+    for profile in matching:
+        unknown = set(profile.settings) - set(PROFILE_SECTIONS)
+        if unknown:
+            raise BaberuError(f"A profile can't change {', '.join(sorted(unknown))}. "
+                              f"It can change: {', '.join(PROFILE_SECTIONS)}.")
+        data = _merge(data, profile.settings)
+        logging.getLogger(__name__).debug(f"Using the profile for model '{profile.model}' language '{profile.lang}'")
+    return Settings.model_validate(data)
+
 
 def load_config(arg: Path | None = None) -> dict[str, Any]:
     """

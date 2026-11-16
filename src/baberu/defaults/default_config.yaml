@@ -9,7 +9,11 @@ logging:
 transcription:
   elevenlabs_model: "whisper-1"
   default_lang_from: "ja"
+  # Request parameters sent to the service as they are, over baberu's defaults.
+  # For ElevenLabs, e.g. num_speakers, no_verbatim, keyterms, numbers_format, temperature, seed.
+  options: {}
   retranscribe_model: ""                           # empty: the same model as above
+  retranscribe_options:                            # empty: the same options as above
   retranscribe_kinds: ["smear", "collapse", "loop"] # anomalies sent to be transcribed again (paid)
 
 parsing:
@@ -53,6 +57,20 @@ anomalies:
   low_confidence_logprob: -1.5   # only used when the model's logprob varies
   low_confidence_min_tokens: 3
   disorder_tolerance_sec: 0.05
+
+# Settings for one transcription model or source language, laid over everything above.
+# `model` matches part of transcription.model; `lang` matches the source language.
+# A profile may change transcription, parsing, mistimed_lines, mistimed_segs and anomalies.
+# Matching profiles apply in order. Listing profiles here replaces the built-in one below.
+profiles:
+  - model: "scribe_v1"
+    settings:
+      transcription:
+        options: {diarization_threshold: 0.1}
+  # - model: "scribe_v3"
+  #   lang: "ja"
+  #   settings:
+  #     anomalies: {smear_min_sec: 3.0}
 
 translation:
   default_model: "gemini-2.5-pro"
