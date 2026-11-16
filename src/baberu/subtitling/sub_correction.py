@@ -1,11 +1,13 @@
 import pysubs2
-from pysubs2 import SSAFile
+from pysubs2 import SSAEvent, SSAFile
 
 import logging
+from functools import reduce
 
 from baberu.settings import MistimedSegmentSettings, PaddingSettings
+from baberu.subtitling.sub_utils import join_text, visible_length
 from baberu.subtitling.types import LineRange
-from baberu.transcription.health import count_repair
+from baberu.transcription.health import count_repair, letters
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +112,8 @@ def find_mistimed_groups(mistimed_lines: set[int],
 def fix_mistimed_lines(subtitles: SSAFile, 
                        threshold: float,
                        segs: MistimedSegmentSettings,
-                        line_range: LineRange | None = None) -> SSAFile:
+                       line_range: LineRange | None = None,
+                       max_letters_per_sec: float | None = None) -> SSAFile:
     """Finds and corrects mistimed subtitles by redistributing their timing.
 
     This function identifies groups of short-duration subtitles and merges them
@@ -121,6 +124,8 @@ def fix_mistimed_lines(subtitles: SSAFile,
         threshold (float): Duration in seconds below which a line is considered mistimed.
         segs (MistimedSegmentSettings): Limits for grouping and expanding short lines.
         line_range (LineRange | None): Restricts the operation to these lines.
+        max_letters_per_sec (float | None): A group that can't be given enough time
+            to be said at this rate is left as it is. None: no limit.
 
     Returns:
         SSAFile: The subtitle object with corrected timings.
@@ -140,21 +145,21 @@ def fix_mistimed_lines(subtitles: SSAFile,
             if min(group) <= segment_end and max(group) >= segment_start
         ]
 
-    count_repair("mistimed_line_groups_fixed", len(groups))
-    # Process each group of consecutive short subtitles
-    for group in groups:            
-        # Find adjacent non-short subtitles for regular groups
+    fixed = 0
+    for group in groups:
         prev_idx = group[0] - 1
         next_idx = group[-1] + 1
-        
-        # Handle group extension
-        if prev_idx < 0:
-            # Concatenate with next index
-            subtitles = _merge_forward(subtitles, next_idx, group)
-        else:
-            # Redistribute time with previous index
-            subtitles = _redistribute_backward(subtitles, prev_idx, group)
 
+        if prev_idx < 0:
+            done = _merge_forward(subtitles, next_idx, group, max_letters_per_sec)
+        else:
+            done = _redistribute_backward(subtitles, prev_idx, group, max_letters_per_sec)
+        if not done:
+            logger.debug(f"Left lines {group[0] + 1}-{group[-1] + 1} as they were: no room to say them")
+        fixed += done
+
+    count_repair("mistimed_line_groups_fixed", fixed)
+    count_repair("mistimed_line_groups_left", len(groups) - fixed)
     logger.debug(f"Extended subtitle durations using threshold of {threshold} s")
     return subtitles
 
@@ -216,7 +221,7 @@ def apply_timing_standards(subtitles: SSAFile,
     
     for i in process_range:
         current_subtitle = subtitles.events[i]
-        text_length = len(current_subtitle.text)
+        text_length = visible_length(current_subtitle)
         
         if text_length == 0:
             continue # Skip empty lines
@@ -364,56 +369,69 @@ def _expand_mistimed_group(subtitles: SSAFile,
 
     return added_indices
 
-def _merge_forward(subtitles: SSAFile, 
-                    next_idx: int, 
-                    group: list[int]) -> SSAFile:
-    """Merges a group of mistimed subtitles forward into the next valid subtitle."""
+def _letters(events: list[SSAEvent]) -> int:
+    """Spoken letters in these lines, at least one per line so every line gets some time."""
+    return sum(max(1, letters(event.plaintext)) for event in events)
+
+
+def _fits(events: list[SSAEvent], start_ms: int, end_ms: int, max_letters_per_sec: float | None) -> bool:
+    """Whether these lines could be said in this time without going over the limit."""
+    if max_letters_per_sec is None:
+        return True
+    window_sec = (end_ms - start_ms) / 1000.0
+    return window_sec > 0 and _letters(events) / window_sec <= max_letters_per_sec
+
+
+def _spread(events: list[SSAEvent], start_ms: int, end_ms: int) -> None:
+    """Places the lines back to back from start to end, each taking time by its letters."""
+    weights = [max(1, letters(event.plaintext)) for event in events]
+    total = sum(weights)
+    done = 0
+    for event, weight in zip(events, weights):
+        event.start = start_ms + (end_ms - start_ms) * done // total
+        done += weight
+        event.end = start_ms + (end_ms - start_ms) * done // total
+
+
+def _merge_forward(subtitles: SSAFile,
+                   next_idx: int,
+                   group: list[int],
+                   max_letters_per_sec: float | None = None) -> bool:
+    """Merges a group of mistimed lines into the line after it. Returns False if it left them alone."""
     if next_idx >= len(subtitles.events):
-        return subtitles  # No next subtitle to extend to
-        
-    # Gather text from all short subtitles in the group
-    combined_text = " ".join(subtitles.events[j].text for j in group)
+        return False  # No next line to merge into
 
-    subtitles.events[next_idx].text = combined_text + " " + subtitles.events[next_idx].text
-    
-    # Update the start time
-    subtitles.events[next_idx].start = subtitles.events[group[0]].start
-    
-    # Clear text from the short subtitles that were concatenated
-    for j in group:
-        subtitles.events[j].text = ""
-        
-    return subtitles
+    lines = [subtitles.events[j] for j in group]
+    following = subtitles.events[next_idx]
+    if not _fits(lines + [following], lines[0].start, following.end, max_letters_per_sec):
+        return False
 
-def _redistribute_backward(subtitles: SSAFile, 
-                     prev_idx: int, 
-                     group: list[int]) -> SSAFile:
-    """Redistributes timing for a group of mistimed subtitles and the preceding valid subtitle."""
+    following.text = reduce(join_text, [line.text for line in lines] + [following.text])
+    following.start = lines[0].start
+    for line in lines:
+        line.text = ""
+    return True
 
-    # Calculate total duration and character count
-    total_start_time = subtitles.events[prev_idx].start
-    total_end_time = subtitles.events[group[-1]].end
-    total_duration = total_end_time - total_start_time
-    
-    # Get all subtitle indices including the previous one
-    all_indices = [prev_idx] + group
 
-    # Calculate total character length
-    text_lengths = [len(subtitles.events[prev_idx].text)] + [len(subtitles.events[j].text) for j in group]
-    total_chars = sum(text_lengths)
-    
-    if total_chars == 0:
-        return subtitles
-    
-    # Redistribute duration based on character length
-    current_time = total_start_time
-    
-    # Apply time redistribution in a single loop
-    current_time = total_start_time
-    for i, idx in enumerate(all_indices):
-        subtitles.events[idx].start = current_time
-        new_duration = int(total_duration * (text_lengths[i] / total_chars))
-        current_time += new_duration
-        subtitles.events[idx].end = current_time
-    
-    return subtitles
+def _redistribute_backward(subtitles: SSAFile,
+                           prev_idx: int,
+                           group: list[int],
+                           max_letters_per_sec: float | None = None) -> bool:
+    """Gives a group of mistimed lines the time before them. Returns False if it left them alone.
+
+    With a limit, the group first takes only the gap after the previous line, so
+    that line keeps its timing and silence isn't handed to it. Only if the gap is
+    too short to say the group in does the previous line share its time, and only
+    if the two together can still be said within the limit.
+    """
+    previous = subtitles.events[prev_idx]
+    lines = [subtitles.events[j] for j in group]
+    end = lines[-1].end
+
+    if max_letters_per_sec is not None and _fits(lines, previous.end, end, max_letters_per_sec):
+        _spread(lines, previous.end, end)
+        return True
+    if _fits([previous] + lines, previous.start, end, max_letters_per_sec):
+        _spread([previous] + lines, previous.start, end)
+        return True
+    return False

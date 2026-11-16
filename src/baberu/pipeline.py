@@ -435,7 +435,8 @@ def _twopass(sub_data: SSAFile,
 def _fix(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Settings) -> tuple[SSAFile, LineRange | None]:
     initial_lines = len(sub_data.events)
     sub_data = sub_correction.fix_mistimed_lines(
-        sub_data, settings.mistimed_lines.mistimed_line_thresh_sec, settings.mistimed_segs, line_range)
+        sub_data, settings.mistimed_lines.mistimed_line_thresh_sec, settings.mistimed_segs, line_range,
+        settings.anomalies.max_letters_per_sec)
     sub_data = sub_correction.remove_empty(sub_data, line_range)
     sub_utils.write(sub_data, job.path(Stage.FIXED))
     logger.info("fix: done")

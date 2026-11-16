@@ -1,14 +1,44 @@
 import hashlib
 import re
+import unicodedata
 from pathlib import Path
 import logging
 
-from pysubs2 import SSAFile
+from pysubs2 import SSAEvent, SSAFile
 
 from baberu.subtitling.types import LineRange
 from baberu.tools.file_utils import atomic_path
 
 logger = logging.getLogger(__name__)
+
+# Scripts written without spaces between words, besides the wide CJK ones.
+_UNSPACED_SCRIPTS = ("THAI", "LAO", "MYANMAR", "KHMER")
+
+
+def _unspaced(char: str) -> bool:
+    """True for a character from a script that doesn't put spaces between words."""
+    name = unicodedata.name(char, "")
+    if name.startswith("HANGUL"):
+        return False  # Korean is wide but spaced
+    return unicodedata.east_asian_width(char) in ("W", "F") or name.startswith(_UNSPACED_SCRIPTS)
+
+
+def join_text(left: str, right: str) -> str:
+    """Joins two pieces of subtitle text, with a space only where the script uses one.
+
+    Japanese, Chinese and Thai run together (`はい` + `そうです`); English gets a
+    space; mixed text follows the characters at the join (`OK` + `です` → `OKです`).
+    """
+    if not left or not right:
+        return left + right
+    if left[-1].isspace() or right[0].isspace() or _unspaced(left[-1]) or _unspaced(right[0]):
+        return left + right
+    return f"{left} {right}"
+
+
+def visible_length(event: SSAEvent) -> int:
+    """Characters a viewer reads: no override tags, no line breaks."""
+    return len(event.plaintext.replace("\n", ""))
 
 def load(file: Path) -> SSAFile:
     """Loads a subtitle file into an SSAFile object.
