@@ -4,7 +4,7 @@ from pysubs2 import SSAEvent, SSAFile
 import logging
 from functools import reduce
 
-from baberu.settings import MistimedSegmentSettings, PaddingSettings
+from baberu.settings import MistimedLineSettings, MistimedSegmentSettings, PaddingSettings
 from baberu.subtitling.sub_utils import join_text, visible_length
 from baberu.subtitling.types import LineRange
 from baberu.transcription.health import count_repair, letters
@@ -162,6 +162,41 @@ def fix_mistimed_lines(subtitles: SSAFile,
     count_repair("mistimed_line_groups_left", len(groups) - fixed)
     logger.debug(f"Extended subtitle durations using threshold of {threshold} s")
     return subtitles
+
+def start_squeezed_lines_earlier(subtitles: SSAFile,
+                                 settings: MistimedLineSettings,
+                                 line_range: LineRange | None = None) -> SSAFile:
+    """Moves back the start of short lines that were pushed up against the next line.
+
+    A reaction like うわぁ！ after a pause can come back from Scribe v3 with almost no
+    length, ending right where the next line starts: its real start is earlier, in
+    the silence. Such a line starts earlier by about the time its letters take to
+    say, within limits, and never before the previous line ends. A short line with
+    silence after it keeps its start; padding gives it time after.
+    """
+    events = subtitles.events
+    first, last = (line_range.start, line_range.end) if line_range else (0, len(events) - 1)
+    threshold = int(settings.mistimed_line_thresh_sec * 1000)
+    touch = int(settings.squeezed_touch_sec * 1000)
+    moved = 0
+    for i in range(max(first, 0), min(last, len(events) - 1) + 1):
+        line = events[i]
+        if line.end - line.start > threshold or i + 1 >= len(events):
+            continue
+        if events[i + 1].start - line.end > touch:
+            continue  # silence after it: the start is right
+        earliest = events[i - 1].end if i > 0 else 0
+        if line.start <= earliest:
+            continue  # no silence before it to move into
+        wanted = letters(line.plaintext) / settings.squeezed_letters_per_sec
+        wanted = min(max(wanted, settings.squeezed_min_sec), settings.squeezed_max_sec)
+        new_start = max(earliest, line.end - int(wanted * 1000))
+        if new_start < line.start:
+            line.start = new_start
+            moved += 1
+    count_repair("squeezed_lines_started_earlier", moved)
+    return subtitles
+
 
 def remove_empty(subtitles: SSAFile,
                  line_range: LineRange | None = None) -> SSAFile:

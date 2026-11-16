@@ -29,14 +29,15 @@ def _download_options(directory: Path | None = None) -> dict[str, Any]:
     return options
 
 
-def download(url: str, directory: Path) -> Path:
-    """Downloads audio or video from a URL into a folder, returning the file's path."""
+def download(url: str, directory: Path) -> tuple[Path, dict[str, Any]]:
+    """Downloads audio or video from a URL into a folder, returning the file's path and its metadata."""
     with yt_dlp.YoutubeDL(_download_options(directory)) as ydl:
         info: dict[str, Any] = ydl.extract_info(url, download=True) or {}
         if not info:
             raise RuntimeError(f"Failed to download: {url}")
         downloads = info.get("requested_downloads") or []
-        return Path(downloads[0]["filepath"]) if downloads else Path(ydl.prepare_filename(info))
+        path = Path(downloads[0]["filepath"]) if downloads else Path(ydl.prepare_filename(info))
+        return path, info
 
 
 def probe_url(url: str) -> dict[str, Any]:

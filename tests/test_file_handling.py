@@ -663,7 +663,7 @@ def test_download_uses_the_real_file_path(monkeypatch, tmp_path):
 
     monkeypatch.setattr(av_utils.yt_dlp, "YoutubeDL", FakeYDL)
 
-    assert av_utils.download("https://x/y", tmp_path) == tmp_path / "Title [abc].mkv"
+    assert av_utils.download("https://x/y", tmp_path)[0] == tmp_path / "Title [abc].mkv"
     assert captured["outtmpl"] == "%(title).120B [%(id)s].%(ext)s"
     assert captured["paths"] == {"home": str(tmp_path)}
 

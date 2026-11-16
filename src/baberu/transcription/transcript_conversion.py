@@ -47,7 +47,8 @@ def split_key(model: str, text: str) -> str:
 def _split_asker(parsing: ParsingSettings, split_cache: dict[str, str] | None) -> Callable[[str], str]:
     """Asks the parsing model where to split a line, remembering answers in `split_cache`."""
     get_splitter: Callable[[], LLMProvider] = functools.cache(lambda: AIToolFactory.get_llm_provider(
-        model_name=parsing.parsing_model, system_prompt=SPLIT_SYSTEM_PROMPT))
+        model_name=parsing.parsing_model, system_prompt=SPLIT_SYSTEM_PROMPT,
+        effort=parsing.parsing_effort))
     cache = split_cache if split_cache is not None else {}
 
     def ask(text: str) -> str:
@@ -75,6 +76,7 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
 
     for segment in transcript.segments:
         all_lines.extend(_delimit_segment(segment, parsing, get_splitter))
+    all_lines = _merge_fragments(all_lines, parsing)
 
     sub_file: SSAFile = SSAFile()
 
@@ -104,6 +106,7 @@ def _delimit_segment(segment: TranscribedSegment,
 
     def finish_line(words: list[TranscribedWord]) -> None:
         sub_line = _create_subtitle_line(words, remove_text, clean=True)
+        sub_line.open_end = not _ends_with(words[-1].text, delimiters + soft_delimiters)             and not words[-1].text.endswith(CONTINUE_FLAG)
         if letters(sub_line.text):  # Lines of only punctuation, like "。」" or "...", are dropped
             sub_lines.append(sub_line)
 
@@ -168,6 +171,43 @@ def _delimit_segment(segment: TranscribedSegment,
         finish_line(current_words)
 
     return sub_lines
+
+_OPEN_BRACKETS = "（("
+_CLOSE_BRACKETS = "）)"
+
+
+def _merge_fragments(lines: list[SubtitleLine], parsing: ParsingSettings) -> list[SubtitleLine]:
+    """Joins a word that a pause cut in two back onto its line.
+
+    Scribe times Japanese one character at a time, so a drawn-out final syllable
+    (乾…杯, 優勝で…す) can leave a gap long enough to start a new line, or segment,
+    in the middle of a word. The tail is joined back when the line before it ends
+    mid-word (no delimiter, comma or space) and the tail is only a letter or two,
+    or when the break falls inside brackets such as （聞き取り不能）. Languages
+    written with spaces always end a word with one, so their lines are never joined.
+    """
+    merged: list[SubtitleLine] = []
+    for line in lines:
+        previous = merged[-1] if merged else None
+        if previous and _cut_mid_word(previous, line, parsing):
+            previous.text += line.text
+            previous.end = max(previous.end, line.end)
+            previous.open_end = line.open_end
+            count_repair("fragment_rejoined")
+            continue
+        merged.append(line)
+    return merged
+
+
+def _cut_mid_word(previous: SubtitleLine, line: SubtitleLine, parsing: ParsingSettings) -> bool:
+    text = previous.text
+    if not previous.open_end or line.text[:1].isspace():
+        return False
+    if line.start - previous.end > parsing.fragment_max_gap_sec:
+        return False
+    unclosed = sum(text.count(c) for c in _OPEN_BRACKETS) > sum(text.count(c) for c in _CLOSE_BRACKETS)
+    return unclosed or letters(line.text) <= parsing.fragment_max_letters
+
 
 def _count_carryover_words(words: list[TranscribedWord],
                            text: str,

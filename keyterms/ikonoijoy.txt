@@ -1,0 +1,61 @@
+# ＝LOVE / ≠ME / ≒JOY (イコラブ ノイミー ニアジョイ チャンネル)
+# One term per line, written as it appears in a Japanese transcript. # starts a comment.
+# Used for every video from channel UCWHh6SdvJWrPuf1oJrHbX3A (see keyterms.channels in config.yaml).
+# Add nicknames as you hear them, e.g. a member's あだ名, so Scribe spells them the way fans do.
+
+# Groups and producer
+＝LOVE
+≠ME
+≒JOY
+イコラブ
+ノイミー
+ニアジョイ
+指原莉乃
+
+# Nicknames (confirmed by the user)
+みりにゃ  # 大谷映美里. Scribe hears it as みーにゃ without this
+
+# Asahi collaboration (2026)
+とくべチュー  # short for とくべチューハイ. Scribe often hears it as 特別
+とくべチューハイ
+
+# ＝LOVE (from the channel's video tags)
+大谷映美里
+大場花菜
+音嶋莉沙
+齋藤樹愛羅
+佐々木舞香
+佐竹のん乃
+髙松瞳
+瀧脇笙古
+野口衣織
+諸橋沙夏
+山本杏奈
+
+# ≠ME (from the channel's video tags)
+尾木波菜
+落合希来里
+蟹沢萌子
+河口夏音
+川中子奈月心
+櫻井もも
+菅波美玲
+鈴木瞳美
+谷崎早耶
+冨田菜々風
+永田詩央里
+本田珠由記
+
+# ≒JOY (not in the tags; from memory, check against the official site)
+逢田珠里依
+天野香乃愛
+市原愛弓
+江角怜音
+大信田美月
+大西葵
+小澤愛実
+髙橋舞
+藤沢莉子
+村山結香
+山田角
+山野愛月

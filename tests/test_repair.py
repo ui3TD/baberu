@@ -153,3 +153,14 @@ def test_a_saved_second_pass_is_reused_without_paying(second_pass):
     second_pass(subs(), LineRange(0, 2))
 
     assert len(second_pass.transcriber.calls) == 1
+
+
+def test_a_margin_gives_lead_in_and_drops_words_outside_the_range(second_pass):
+    # The fake service always answers "hello" at 0-2 s of the clip it is sent.
+    subs = make_subs([(0, 500, "before"), (1000, 1010, "x"), (1010, 1020, "y"), (1020, 3000, "z"), (6000, 7000, "after")])
+
+    result = second_pass(subs, LineRange(1, 3), margin_sec=1.0)
+
+    # The clip is cut from 0 s to 4 s; "hello" (middle at 1 s) falls inside lines 1-3, so it replaces them.
+    assert second_pass.job.segment(0, 4000, "scribe_v3").exists()
+    assert [e.text for e in result.events] == ["before", "hello", "after"]

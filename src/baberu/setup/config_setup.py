@@ -43,6 +43,19 @@ def apply_profiles(settings: Settings, lang: str) -> Settings:
     return Settings.model_validate(data)
 
 
+def config_dir(arg: Path | None = None) -> Path:
+    """The folder of the config file load_config reads, for files kept beside it."""
+    if arg and arg.exists():
+        return arg.resolve().parent
+    try:
+        project_root = file_utils.get_project_dir()
+        if (project_root / CONFIG_FILE_NAME).exists():
+            return project_root
+    except FileNotFoundError:
+        pass
+    return Path(platformdirs.user_config_dir(APP_NAME))
+
+
 def load_config(arg: Path | None = None) -> dict[str, Any]:
     """
     Load configuration from a YAML file with a fallback mechanism.

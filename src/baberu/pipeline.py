@@ -10,6 +10,7 @@ import shutil
 import sys
 
 from baberu.providers.factory import AIToolFactory
+from baberu.providers.llm import base as llm_base
 from baberu.providers.llm.base import LLMProvider
 from pysubs2 import SSAFile
 
@@ -22,7 +23,7 @@ from baberu.subtitling import sub_correction, sub_translation, sub_utils, transl
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
 from baberu.tools.file_utils import FileKind, atomic_path, atomic_write_text, file_hash, kind_of
-from baberu.transcription import health, repair, transcript_chunked, transcript_conversion, transcript_segmented
+from baberu.transcription import health, keyterms, repair, transcript_chunked, transcript_conversion, transcript_segmented
 
 if TYPE_CHECKING:
     from baberu.cli import RunRequest
@@ -41,10 +42,11 @@ class PlannedStage:
     name: str
     action: str
     detail: str = ""
+    paid: bool = False  # for a stage that costs money only with some settings
 
     @property
     def spends_money(self) -> bool:
-        return self.action == RUN and self.name in _PAID
+        return self.action == RUN and (self.name in _PAID or self.paid)
 
 
 @dataclass
@@ -122,7 +124,8 @@ def _find_media(request: RunRequest, job: Job, input_file: Path, video: Path | N
     return video, audio, retranscribe
 
 
-def _build_plan(request: RunRequest, job: Job, input_file: Path, video: Path | None, audio: Path | None) -> Plan:
+def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: Path, video: Path | None,
+                audio: Path | None) -> Plan:
     stages: list[PlannedStage] = []
     video, audio, retranscribe = _find_media(request, job, input_file, video, audio)
 
@@ -155,6 +158,7 @@ def _build_plan(request: RunRequest, job: Job, input_file: Path, video: Path | N
         stages.append(PlannedStage("translate", translate, _line_count_detail(request, job)))
     if has_subtitles and request.pad:
         stages.append(PlannedStage("pad", RUN))
+    _plan_keyterms(request, settings, job, stages)
 
     plan = Plan(stages, input_file, video, audio)
     names = {stage.name for stage in stages}
@@ -170,6 +174,45 @@ def _build_plan(request: RunRequest, job: Job, input_file: Path, video: Path | N
 
     _plan_video_output(request, job, plan, has_subtitles, input_file)
     return plan
+
+
+def _keyterms_path(job: Job) -> Path:
+    return job.folder / "keyterms.txt"
+
+
+def _source_info_path(job: Job) -> Path:
+    return job.folder / "source.json"
+
+
+def _takes_keyterms(model: str) -> bool:
+    try:
+        return AIToolFactory.get_transcription_provider_type(model).supports_keyterms
+    except ValueError:
+        return False
+
+
+def _keyterm_users(settings: Settings) -> set[str]:
+    """The transcription stages that would send keyterms."""
+    users = {"transcribe"} if _takes_keyterms(settings.transcription.model) else set()
+    if settings.keyterms.retranscribe and _takes_keyterms(_retranscribe_model(settings)):
+        users.add("retranscribe")
+    return users
+
+
+def _plan_keyterms(request: RunRequest, settings: Settings, job: Job, stages: list[PlannedStage]) -> None:
+    """Keyterms come just before the first transcription that will send them."""
+    if not request.use_keyterms:
+        return
+    users = _keyterm_users(settings)
+    first = next((i for i, s in enumerate(stages) if s.name in users and s.action == RUN), None)
+    if first is None:
+        return
+    action = _reuse_or_run(request, job, "keyterms", _keyterms_path(job))
+    sources = [*request.keyterm_lists, "channel lists", "tags"]
+    if settings.keyterms.llm_model:
+        sources.insert(0, settings.keyterms.llm_model)
+    stages.insert(first, PlannedStage("keyterms", action, "from " + ", ".join(sources),
+                                      paid=bool(settings.keyterms.llm_model)))
 
 
 def _plan_video_output(request: RunRequest, job: Job, plan: Plan, has_subtitles: bool, input_file: Path) -> None:
@@ -211,6 +254,11 @@ def _preflight(request: RunRequest, settings: Settings, job: Job, plan: Plan) ->
         raise BaberuError("ffmpeg was not found. Install it and make sure it's on your PATH.")
 
     _check_api_keys(request, settings, plan)
+    if plan.action("transcribe") == REUSE:
+        # Checked here too, so a dry run reports it instead of the run stopping partway.
+        transcript = job.path(Stage.TRANSCRIPT)
+        _guard_paid_work(job, transcript, None, settings.transcription.model, "transcribe")
+        _guard_options(job, transcript, settings.transcription.options, "transcribe")
 
     for target in (plan.subtitle_target, plan.video_target):
         if _is_same_file(target, plan.input_file) or _is_same_file(target, plan.hardcode_video):
@@ -234,6 +282,11 @@ def _check_api_keys(request: RunRequest, settings: Settings, plan: Plan) -> None
             AIToolFactory.get_transcription_provider(_retranscribe_model(settings), _retranscribe_options(settings))
         if plan.action("translate") == RUN:
             AIToolFactory.get_llm_provider(request.model)
+        if plan.action("keyterms") == RUN:
+            if settings.keyterms.llm_model:
+                AIToolFactory.get_llm_provider(settings.keyterms.llm_model)
+            for name in request.keyterm_lists:
+                keyterms.resolve_list(name, request.keyterms_dir)
         if plan.action("context") == RUN:
             websearch = AIToolFactory.get_llm_provider(settings.translation.websearch_model)
             if not websearch.supports_grounding:
@@ -268,6 +321,8 @@ def _clear_redone_work(request: RunRequest, job: Job) -> None:
         audio = job.find_audio()
         if audio:
             audio.unlink()
+    if _wants_redo(request, "keyterms"):
+        job.clear(_keyterms_path(job))
     if _wants_redo(request, "transcribe"):
         job.clear(job.path(Stage.TRANSCRIPT))
     if _wants_redo(request, "convert"):
@@ -338,7 +393,46 @@ def _extract(video_file: Path, job: Job, action: str) -> Path:
     return audio_file
 
 
-def _transcribe(audio_file: Path | None, job: Job, action: str, lang: str, settings: Settings):
+def _keyterms(request: RunRequest, job: Job, action: str, settings: Settings) -> list[str]:
+    """Builds, or reuses, the words sent to the transcription service so names come out right."""
+    options = settings.keyterms
+    path = _keyterms_path(job)
+    if action == REUSE:
+        _announce_reuse("keyterms", path)
+        return keyterms.load(path, options.max_terms)
+
+    info = keyterms.load_metadata(_source_info_path(job))
+    list_paths = []
+    for name in keyterms.lists_for(info, options.channels, request.keyterm_lists):
+        try:
+            list_paths.append(keyterms.resolve_list(name, request.keyterms_dir))
+        except BaberuError as error:
+            logger.warning(f"keyterms: {error}")
+    llm = None
+    if options.llm_model and info:
+        llm = AIToolFactory.get_llm_provider(options.llm_model, effort=options.effort,
+                                             max_retries=settings.translation.server_retries)
+        logger.info(f"keyterms: asking {options.llm_model} for names in the video's details...")
+
+    lang_name = translation_prompts.language_name(request.lang_from)
+    terms = keyterms.build(info, list_paths, options.max_terms, llm, lang_name)
+    keyterms.write(terms, path)
+    used = ", ".join(p.stem for p in list_paths) or "none"
+    logger.info(f"keyterms: {len(terms)} terms (lists: {used}{', video details' if info else ''})")
+
+    if terms and options.confirm and sys.stdin.isatty():
+        input(f"\n{', '.join(terms)}\n\n"
+              f"Review or edit {path} if needed, then press Enter to continue (Ctrl-C to cancel)...")
+        terms = keyterms.load(path, options.max_terms)
+    return terms
+
+
+def _with_keyterms(options: dict, terms: list[str] | None) -> dict:
+    return {**options, "keyterms": terms} if terms else options
+
+
+def _transcribe(audio_file: Path | None, job: Job, action: str, lang: str, settings: Settings,
+                terms: list[str] | None = None):
     json_file = job.path(Stage.TRANSCRIPT)
     model = settings.transcription.model
     options = settings.transcription.options
@@ -348,6 +442,9 @@ def _transcribe(audio_file: Path | None, job: Job, action: str, lang: str, setti
         _announce_reuse("transcribe", json_file)
         return transcript_conversion.load_transcript_json(json_file)
 
+    if terms:
+        options = _with_keyterms(options, terms)
+        logger.info(f"transcribe: with {len(terms)} keyterms")
     logger.info(f"transcribe: sending audio to the transcription service ({model})...")
     provider = AIToolFactory.get_transcription_provider(model, options)
     transcript, json_data = transcript_chunked.transcribe_file(audio_file, provider, lang)
@@ -388,7 +485,8 @@ def _twopass(sub_data: SSAFile,
              lang: str,
              line_range: LineRange | None,
              settings: Settings,
-             transcript=None) -> tuple[SSAFile, LineRange | None]:
+             transcript=None,
+             terms: list[str] | None = None) -> tuple[SSAFile, LineRange | None]:
     """Re-transcribes poorly transcribed segments.
 
     Candidates come from the transcript's anomalies, when the subtitles were
@@ -421,10 +519,12 @@ def _twopass(sub_data: SSAFile,
         splits = job.load_splits()
         sub_data = transcript_segmented.transcribe_segments(
             subtitles=sub_data, ranges=ranges, audio_file=audio_file, job=job, lang=lang,
-            parsing=settings.parsing, transcription_model=model, options=_retranscribe_options(settings),
+            parsing=settings.parsing, transcription_model=model,
+            options=_with_keyterms(_retranscribe_options(settings), terms),
             split_cache=splits,
             limits=settings.anomalies, kinds=kinds, anomalies=anomalies,
-            short_line_sec=segs.mistimed_seg_thresh_sec, always_accept=bool(line_range))
+            short_line_sec=segs.mistimed_seg_thresh_sec, always_accept=bool(line_range),
+            margin_sec=segs.clip_margin_sec)
         job.save_splits(splits)
         sub_data = sub_correction.remove_empty(sub_data)
     else:
@@ -438,9 +538,12 @@ def _twopass(sub_data: SSAFile,
 
 def _fix(sub_data: SSAFile, job: Job, line_range: LineRange | None, settings: Settings) -> tuple[SSAFile, LineRange | None]:
     initial_lines = len(sub_data.events)
-    sub_data = sub_correction.fix_mistimed_lines(
-        sub_data, settings.mistimed_lines.mistimed_line_thresh_sec, settings.mistimed_segs, line_range,
-        settings.anomalies.max_letters_per_sec)
+    if settings.mistimed_lines.method == "squeezed":
+        sub_data = sub_correction.start_squeezed_lines_earlier(sub_data, settings.mistimed_lines, line_range)
+    else:
+        sub_data = sub_correction.fix_mistimed_lines(
+            sub_data, settings.mistimed_lines.mistimed_line_thresh_sec, settings.mistimed_segs, line_range,
+            settings.anomalies.max_letters_per_sec)
     sub_data = sub_correction.remove_empty(sub_data, line_range)
     sub_utils.write(sub_data, job.path(Stage.FIXED))
     logger.info("fix: done")
@@ -461,8 +564,10 @@ def _context(sub_data: SSAFile, request: RunRequest, job: Job, action: str, opti
     llm = AIToolFactory.get_llm_provider(
         model_name=options.websearch_model,
         system_prompt="You must follow prompt instructions.",
-        max_retries=options.server_retries)
-    context_data = sub_translation.generate_context(sub_data, llm, job.name, request.lang_from, request.lang_to)
+        max_retries=options.server_retries,
+        effort=options.effort)
+    context_data = sub_translation.generate_context(sub_data, llm, job.name, request.lang_from, request.lang_to,
+                                                    _video_details(job))
     sub_translation.write_lines([context_data], context_file)
 
     if options.confirm_auto_context and sys.stdin.isatty():
@@ -471,13 +576,31 @@ def _context(sub_data: SSAFile, request: RunRequest, job: Job, action: str, opti
     return context_data
 
 
+def _video_details(job: Job) -> str:
+    """The video's title and description, and its keyterms, for the notes model."""
+    info = keyterms.load_metadata(_source_info_path(job))
+    lines = []
+    if info.get("title"):
+        lines.append(f"Video title: {info['title']}")
+    if info.get("channel"):
+        lines.append(f"Channel: {info['channel']}")
+    if info.get("description"):
+        lines.append(f"Video description:\n{info['description']}")
+    terms = keyterms.load(_keyterms_path(job), keyterms.MAX_KEYTERMS)
+    if terms:
+        lines.append(f"Known names and terms (most won't appear; use them only to identify names in "
+                     f"the transcript, including misheard ones): {', '.join(terms)}")
+    return "\n".join(lines)
+
+
 def _fallback_llm(system_prompt: str, model: str, options: TranslationSettings) -> LLMProvider | None:
     """The backup translator. A missing API key shouldn't stop the main model from running."""
     if not options.fallback_model or options.fallback_model == model:
         return None
     try:
         return AIToolFactory.get_llm_provider(
-            model_name=options.fallback_model, system_prompt=system_prompt, max_retries=options.server_retries)
+            model_name=options.fallback_model, system_prompt=system_prompt, max_retries=options.server_retries,
+            effort=options.effort)
     except ValueError as error:
         logger.warning(f"Fallback model {options.fallback_model} is unavailable: {error}")
         return None
@@ -510,7 +633,8 @@ def _translate(sub_data: SSAFile,
 
     system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to)
     llm = AIToolFactory.get_llm_provider(
-        model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries)
+        model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries,
+        effort=options.effort)
     start_index = line_range.start if line_range else 0
 
     translated_lines, report = sub_translation.translate(
@@ -618,6 +742,8 @@ def _log_health(report: dict | None) -> None:
         logger.info("health: " + (", ".join(f"{kind} {count}" for kind, count in counts.items()) or "no anomalies"))
     if health.repairs:
         logger.info("repairs: " + ", ".join(f"{name} {count}" for name, count in health.repairs.items()))
+    if llm_base.ledger:
+        logger.info("spend: " + llm_base.usage_summary())
 
 
 def diagnose(request: RunRequest, settings: Settings) -> Path:
@@ -653,9 +779,10 @@ def run(request: RunRequest, settings: Settings) -> None:
         return
 
     input_file, video, audio = request.input_file, request.video_file, request.audio_file
+    info: dict = {}
     if request.url:
         logger.info("download: fetching...")
-        input_file = av_utils.download(request.url, request.output_dir)
+        input_file, info = av_utils.download(request.url, request.output_dir)
         logger.info(f"download: {input_file.name}")
         if kind_of(input_file) is FileKind.AUDIO:
             video, audio = None, input_file
@@ -669,7 +796,7 @@ def run(request: RunRequest, settings: Settings) -> None:
     if _is_media_source(input_file):
         job.check_source(input_file.name)
 
-    plan = _build_plan(request, job, input_file, video, audio)
+    plan = _build_plan(request, settings, job, input_file, video, audio)
     _preflight(request, settings, job, plan)
 
     if request.dry_run:
@@ -678,8 +805,10 @@ def run(request: RunRequest, settings: Settings) -> None:
 
     _clear_redone_work(request, job)
     health.repairs.clear()
+    llm_base.ledger.clear()
     if _is_media_source(input_file):
         job.set_source(input_file.name)
+    _save_source_info(job, input_file, info)
     job.save()
 
     results = _run_stages(request, settings, job, plan)
@@ -692,6 +821,15 @@ def run(request: RunRequest, settings: Settings) -> None:
         _clean(job, input_file, results)
 
 
+def _save_source_info(job: Job, input_file: Path, info: dict) -> None:
+    """Keeps the video's title, tags and description, for keyterms and translation notes."""
+    if not info and not _source_info_path(job).exists():
+        sidecar = keyterms.find_info_json(input_file)
+        info = keyterms.load_metadata(sidecar) if sidecar else {}
+    if info:
+        keyterms.save_metadata(info, _source_info_path(job))
+
+
 def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -> list[Path]:
     video, audio = plan.video, plan.audio
     line_range = request.line_range
@@ -702,8 +840,14 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
     if plan.action("extract"):
         audio = _extract(video, job, plan.action("extract"))
 
+    terms: list[str] = []
+    if plan.action("keyterms"):
+        terms = _keyterms(request, job, plan.action("keyterms"), settings)
+    users = _keyterm_users(settings)
+
     if plan.action("transcribe"):
-        transcript = _transcribe(audio, job, plan.action("transcribe"), request.lang_from, settings)
+        transcript = _transcribe(audio, job, plan.action("transcribe"), request.lang_from, settings,
+                                 terms if "transcribe" in users else None)
     if request.json_file:
         transcript = transcript_conversion.load_transcript_json(request.json_file)
 
@@ -714,7 +858,8 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
 
     if plan.action("retranscribe"):
         sub_data, line_range = _twopass(sub_data, audio, job, plan.action("retranscribe"), request.lang_from, line_range,
-                                        settings, transcript if not request.sub_file else None)
+                                        settings, transcript if not request.sub_file else None,
+                                        terms if "retranscribe" in users else None)
     if plan.action("fix"):
         sub_data, line_range = _fix(sub_data, job, line_range, settings)
     if plan.action("translate"):

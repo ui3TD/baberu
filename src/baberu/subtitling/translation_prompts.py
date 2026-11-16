@@ -14,7 +14,7 @@ RETRY_MARKER = "Translate only these entries, keeping their numbers:\n\n"
 
 def system_prompt(lang_from: str, lang_to: str) -> str:
     """Creates the system prompt for the LLM translator role."""
-    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, each with its number, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries."
+    prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely while preserving the meaning and nuance. Return ONLY the translated entries, each with its number, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries.\n5. Where the context gives a term as \"(Mis-spelled: X)\", any X in the source is that term misheard: always translate it as the correct term."
     return prompt
 
 
@@ -61,8 +61,13 @@ def targeted_retry_prompt(previous_translations: list[str],
             f"{_entries([current_batch[i] for i in wanted], [i + 1 for i in wanted])}")
 
 
+def context_section(context_prompt: str) -> str:
+    """How every translation prompt starts. It is the same for every batch, so it can be cached."""
+    return f"Context:\n{context_prompt}\n\n"
+
+
 def _preamble(previous_translations: list[str], context_prompt: str, context_lines: int) -> str:
-    section = f"Context:\n{context_prompt}\n\n"
+    section = context_section(context_prompt)
     recent = previous_translations[-context_lines:] if context_lines > 0 else []
     if recent:
         section += (f"For continuity, here are the last {len(recent)} translated entries:\n"
@@ -81,13 +86,24 @@ def _one_line(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\n", "\\N").replace("\\n", "\\N")
 
 
-def context_prompt(subtitles: SSAFile, filename: str, lang_from: str, lang_to: str) -> str:
-    """Constructs the prompt for generating a context summary from subtitles."""
-    sub_events: str = "\n".join(i.text for i in subtitles.events)
+def context_prompt(subtitles: SSAFile, filename: str, lang_from: str, lang_to: str, details: str = "") -> str:
+    """Constructs the prompt for generating a context summary from subtitles.
+
+    `details` is what is known about the video besides its transcript, such as its
+    title, description and the keyterms given to the transcription service.
+    """
+    sub_events: str = "\n".join(i.text.replace(constants.CONTINUE_FLAG, "") for i in subtitles.events)
+    if details:
+        filename = f"{filename}\n{details}\n\nTranscript:"
 
     prompt: str = f"You are commissioning a translator and they have requested information in English. They will be provided with only the transcript attached. They will not be provided the source audio or video or other material. Make no reference to those. You are to: (1) State whether the transcript is high quality or if it was auto-generated with errors to inform the translator how strictly or liberally to follow the text, (2) State what the content is in 1 sentence, (3) Summarize the contents in 4 sentences, and (4) Under the header 'Glossary', provide a comprehensive simple mapping of jargon, names and titles from {_get_lang_name(lang_from)} to {_get_lang_name(lang_to)} for the translator to keep consistent, noting mis-spellings if any.\nGlossary Format:\n'Correct {_get_lang_name(lang_from)}: {_get_lang_name(lang_to)} (Mis-spellings: Mis-spelled {_get_lang_name(lang_from)})')\nみりにゃ: Mirinya, nickname of Otani Emiri (Mis-spelled: みーにゃん)\n\nRespond in text format with no special formatting or numbering. Provide only the information requested. Be concise. Japanese names should be lastname-firstname order. Search the internet to ensure accuracy of the glossary.\n\nTranscript of Video: {filename}\n{sub_events}"
 
     return prompt
+
+
+def language_name(bcp47_code: str) -> str:
+    """The English name of a language, e.g. Japanese for ja."""
+    return _get_lang_name(bcp47_code)
 
 
 def _get_lang_name(bcp47_code: str) -> str:

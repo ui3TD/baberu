@@ -267,3 +267,12 @@ def test_prompt_sends_line_breaks_as_a_single_escape():
 
     assert "1. one\\Ntwo\n2. three\\Nfour\n3. five\\Nsix" in prompt
     assert "\\\\N" not in prompt
+
+
+def test_translation_asks_to_cache_the_notes(tmp_path):
+    llm = FakeLLM(translate_all)
+    sub_translation.translate(numbered_subs(3), tmp_path / "partial.txt", "my notes", llm, None, "ja", "en",
+                              TranslationSettings())
+
+    assert llm.kwargs[0]["cache_prefix"] == translation_prompts.context_section("my notes")
+    assert llm.calls[0].startswith(llm.kwargs[0]["cache_prefix"])

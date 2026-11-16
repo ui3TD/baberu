@@ -6,6 +6,7 @@ import logging
 from pysubs2 import SSAFile
 
 from baberu.providers.factory import AIToolFactory
+from baberu.providers.transcription.base import TranscribedWord, TranscriptionResult
 
 from baberu.job import Job
 from baberu.settings import AnomalySettings, MistimedSegmentSettings, ParsingSettings
@@ -78,12 +79,16 @@ def transcribe_segments(subtitles: SSAFile,
                         kinds: tuple[str, ...] = (),
                         anomalies: list[Anomaly] | None = None,
                         short_line_sec: float = 0.1,
-                        always_accept: bool = False) -> SSAFile:
+                        always_accept: bool = False,
+                        margin_sec: float = 0.0) -> SSAFile:
     """Re-transcribes the audio behind each range, and keeps the result only if it is better.
 
     Better means not empty, and fewer problems than the lines it replaces:
     first-pass `anomalies` of the given `kinds` in that time, plus short lines.
     `always_accept` skips the comparison, for a range the user chose.
+    `margin_sec` widens the audio cut on each side, giving the service lead-in and
+    lead-out so the first and last words aren't lost or misheard. Words whose middle
+    falls in the margin belong to the neighbouring lines and are dropped.
     """
     if not ranges:
         return subtitles
@@ -95,20 +100,23 @@ def transcribe_segments(subtitles: SSAFile,
     for line_range in sorted(ranges, key=lambda r: r.start, reverse=True):
         start_time_ms = subtitles.events[line_range.start].start
         end_time_ms = subtitles.events[line_range.end].end
+        cut_start_ms, cut_end_ms = _clip_bounds(start_time_ms, end_time_ms, margin_sec)
 
-        output_file: Path = job.segment(start_time_ms, end_time_ms, transcription_model)
+        output_file: Path = job.segment(cut_start_ms, cut_end_ms, transcription_model)
 
         if output_file.exists():
             transcript = transcript_conversion.load_transcript_json(output_file)
         else:
             if transcript_provider is None:
                 transcript_provider = AIToolFactory.get_transcription_provider(transcription_model, options)
-            transcript = _transcribe_audio(audio_file, start_time_ms, end_time_ms, transcript_provider, lang, output_file)
+            transcript = _transcribe_audio(audio_file, cut_start_ms, cut_end_ms, transcript_provider, lang, output_file)
             if transcript is None:
                 continue
+        if (cut_start_ms, cut_end_ms) != (start_time_ms, end_time_ms):
+            transcript = _within(transcript, (start_time_ms - cut_start_ms) / 1000, (end_time_ms - cut_start_ms) / 1000)
 
         new_subtitles = transcript_conversion.convert_transcript_to_subs(transcript, parsing, split_cache, limits)
-        new_subtitles.shift(ms=start_time_ms)
+        new_subtitles.shift(ms=cut_start_ms)
 
         old_anomalies = [a for a in anomalies or [] if a.kind in kinds
                          and a.start * 1000 <= end_time_ms and a.end * 1000 >= start_time_ms]
@@ -128,6 +136,27 @@ def transcribe_segments(subtitles: SSAFile,
 
     logger.debug(f"Processed {len(ranges)} segments using two-pass transcription")
     return subtitles
+
+
+def _clip_bounds(start_ms: int, end_ms: int, margin_sec: float) -> tuple[int, int]:
+    """The audio to cut for a range: its time plus a margin on each side."""
+    margin = max(int(margin_sec * 1000), 0)
+    return max(start_ms - margin, 0), end_ms + margin
+
+
+def _within(transcript: TranscriptionResult, start_sec: float, end_sec: float) -> TranscriptionResult:
+    """Keeps the words whose middle falls between start and end; the rest belong to the margins."""
+    def inside(word: TranscribedWord) -> bool:
+        if word.start is None or word.end is None:
+            return True
+        return start_sec <= (word.start + word.end) / 2 <= end_sec
+
+    segments = []
+    for segment in transcript.segments:
+        words = [w for w in segment.words if inside(w)]
+        if any(w.type == "word" for w in words):
+            segments.append(segment.model_copy(update={"words": words}))
+    return transcript.model_copy(update={"segments": segments})
 
 
 def _transcribe_audio(audio_file: Path, start_ms: int, end_ms: int, provider, lang: str, output_file: Path):

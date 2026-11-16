@@ -119,3 +119,37 @@ def test_md_to_ass_converts_emphasis():
     subs = make_subs([(0, 1, "*i* **b**")])
 
     assert sub_utils.md_to_ass(subs).events[0].text == r"{\i1}i{\i0} {\b1}b{\b0}"
+
+
+# --- squeezed lines (Scribe v3) ---
+
+def _squeezed(rows):
+    from baberu.settings import MistimedLineSettings
+    from baberu.subtitling import sub_correction
+    from conftest import make_subs
+
+    subs = make_subs(rows)
+    sub_correction.start_squeezed_lines_earlier(subs, MistimedLineSettings(method="squeezed"))
+    return [(e.start, e.end) for e in subs.events]
+
+
+def test_a_reaction_pressed_against_the_next_line_starts_earlier():
+    # うわぁ！ (3 letters): 3 / 8 = 0.375 s before its end.
+    times = _squeezed([(0, 2000, "せーの。"), (4980, 5020, "うわぁ！"), (5020, 6000, "開けてみよう。")])
+
+    assert times[1] == (4645, 5020)
+
+
+def test_a_short_line_with_silence_after_keeps_its_start():
+    times = _squeezed([(0, 1000, "マジで映える。"), (1020, 1020, "映"), (3300, 5000, "風味ってさ。")])
+
+    assert times[1] == (1020, 1020)
+
+
+def test_the_move_is_at_least_the_minimum_and_never_before_the_previous_line():
+    assert _squeezed([(0, 1000, "a"), (3000, 3010, "え？"), (3010, 4000, "b")])[1] == (2710, 3010)   # 0.3 s minimum
+    assert _squeezed([(0, 2900, "a"), (3000, 3010, "え？"), (3010, 4000, "b")])[1] == (2900, 3010)   # stops at the line before
+
+
+def test_long_lines_are_left_alone():
+    assert _squeezed([(0, 1000, "a"), (3000, 3500, "長い行です。"), (3500, 4000, "b")])[1] == (3000, 3500)

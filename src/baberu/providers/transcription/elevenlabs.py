@@ -16,6 +16,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ScribeProvider(TranscriptionProvider):
+    supports_keyterms = True
+
     # What baberu has always asked for. `options` from config.yaml go on top, so any
     # parameter of the speech-to-text API (num_speakers, no_verbatim, keyterms,
     # numbers_format...) can be tried without a code change.

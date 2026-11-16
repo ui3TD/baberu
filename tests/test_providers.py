@@ -271,7 +271,7 @@ def test_responses_api_maps_status(response, status):
 
 
 @pytest.mark.parametrize("module,cls", [("openai", "GPTProvider"), ("openai", "OProvider"),
-                                        ("grok", "GrokProvider"), ("openrouter", "OpenRouterProvider")])
+                                        ("grok", "GrokProvider")])
 def test_responses_providers_report_truncation(module, cls):
     import importlib
 
@@ -280,3 +280,68 @@ def test_responses_providers_report_truncation(module, cls):
     provider.client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: reply))
 
     assert provider.complete("hi").status == "truncated"
+
+
+def test_openrouter_reports_the_providers_cost_for_byok():
+    from baberu.providers.llm.base import responses_usage, usage_summary
+
+    def reply(usage):
+        return SimpleNamespace(usage=SimpleNamespace(model_dump=lambda: usage))
+
+    byok = responses_usage("m", reply({"input_tokens": 16, "output_tokens": 10, "cost": 0, "is_byok": True,
+                                       "output_tokens_details": {"reasoning_tokens": 4},
+                                       "cost_details": {"upstream_inference_cost": 6.6e-06}}))
+    credits = responses_usage("m", reply({"input_tokens": 1, "output_tokens": 1, "cost": 0.5, "is_byok": False}))
+
+    assert (byok.input_tokens, byok.output_tokens, byok.reasoning_tokens, byok.cost) == (16, 10, 4, 6.6e-06)
+    assert credits.cost == 0.5
+    assert usage_summary([byok, credits]) == "m: 2 requests, 17 in, 11 out, $0.500007"
+
+
+# --- OpenRouter (chat completions, for caching) ---
+
+def chat_reply(text, finish_reason="stop", refusal=None):
+    message = SimpleNamespace(content=text, refusal=refusal)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)], usage=None)
+
+
+@pytest.mark.parametrize("reply,status", [
+    (chat_reply("ok"), "complete"),
+    (chat_reply("cut", "length"), "truncated"),
+    (chat_reply("", "content_filter"), "refused"),
+    (chat_reply("", refusal="no"), "refused"),
+    (chat_reply(""), "empty"),
+])
+def test_openrouter_reads_how_a_reply_ended(reply, status):
+    from baberu.providers.llm.openrouter import OpenRouterProvider
+
+    provider = OpenRouterProvider("k", "m")
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: reply)))
+
+    assert provider.complete("hi").status == status
+
+
+def test_openrouter_marks_the_cacheable_prefix():
+    from baberu.providers.llm.openrouter import OpenRouterProvider
+
+    sent = {}
+    provider = OpenRouterProvider("k", "m", system_prompt="sys")
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        create=lambda **kw: sent.update(kw) or chat_reply("ok"))))
+
+    provider.complete("Context:\nnotes\n\nTranslate 1. x", cache_prefix="Context:\nnotes\n\n")
+
+    assert sent["messages"][0] == {"role": "system", "content": "sys"}
+    assert sent["messages"][1]["content"] == [
+        {"type": "text", "text": "Context:\nnotes\n\n", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "Translate 1. x"},
+    ]
+
+    provider.complete("plain")   # without a prefix, the prompt goes as plain text
+    assert sent["messages"][1]["content"] == "plain"
+
+
+def test_providers_that_cannot_cache_ignore_the_prefix():
+    provider = ScriptedProvider(["ok"])
+
+    assert provider.complete("Context: x", cache_prefix="Context:").text == "ok"

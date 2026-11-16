@@ -27,6 +27,9 @@ class TranscriptionResult(pydantic.BaseModel):
 
 class TranscriptionProvider(ABC):
     """Abstract base class for all transcription providers."""
+    # Whether the service takes a `keyterms` list of words to recognise.
+    supports_keyterms: bool = False
+
     def __init__(self, api_key: str, model: str, options: dict[str, Any] | None = None):
         """Initializes the transcription provider.
 

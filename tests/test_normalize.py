@@ -166,3 +166,82 @@ def test_conversion_keeps_every_letter_and_never_makes_empty_timing():
         spoken_out = "".join(c for e in subs.events for c in e.text.replace("%%CONT%%", "") if letters(c))
         assert spoken_out == spoken_in
         assert all(e.end > e.start for e in subs.events)
+
+
+# --- words cut by a pause ---
+
+def chars(text, start, step=0.1):
+    """One token per character, the way Scribe times Japanese."""
+    return [word(c, start + i * step, start + (i + 1) * step) for i, c in enumerate(text)]
+
+
+def lines(t, parsing=JAPANESE):
+    return [e.text for e in convert(t, parsing).events]
+
+
+def test_a_drawn_out_last_syllable_stays_on_its_line():
+    t = transcript(*chars("せーの、乾", 0.0), *chars("杯。", 3.3))
+
+    assert lines(t) == ["せーの、乾杯。"]
+
+
+def test_a_tail_split_into_another_segment_is_joined_too():
+    t = TranscriptionResult(segments=[TranscribedSegment(words=chars("舞香が優勝で", 0.0)),
+                                      TranscribedSegment(words=chars("す。", 3.4))])
+
+    assert lines(t) == ["舞香が優勝です。"]
+
+
+def test_brackets_cut_by_a_pause_are_joined():
+    t = transcript(*chars("下に下（聞", 0.0), *chars("き取り不能）。", 3.3))
+
+    assert lines(t) == ["下に下（聞き取り不能）。"]
+
+
+def test_a_longer_line_after_a_pause_stays_separate():
+    # A one-letter line before a pause is often a real interjection; leave it.
+    t = transcript(*chars("特", 0.0), *chars("別二番。", 3.0))
+
+    assert lines(t) == ["特", "別二番。"]
+
+
+def test_a_pause_after_punctuation_still_starts_a_line():
+    t = transcript(*chars("はい、", 0.0), *chars("す。", 3.0))
+
+    assert lines(t) == ["はい、", "す。"]
+
+
+def test_a_very_long_pause_is_never_joined():
+    t = transcript(*chars("乾", 0.0), *chars("杯。", 6.0))
+
+    assert lines(t) == ["乾", "杯。"]
+
+
+def test_english_words_cut_by_a_pause_never_join():
+    english = ParsingSettings(delimiters=["."], soft_delimiters=[" "], remove_text=[], parsing_model="")
+    t = transcript(word("So", 0.0, 0.3), word(" ", 0.3, 0.3, "spacing"), word("I", 0.3, 0.5),
+                   word(" ", 0.5, 0.5, "spacing"), word("think", 0.5, 0.9), word(" ", 0.9, 0.9, "spacing"),
+                   word("no.", 3.5, 3.9))
+
+    assert lines(t, english) == ["So I think", "no."]
+
+
+# --- second-pass clip margins ---
+
+def test_clip_margin_widens_both_sides_but_not_before_zero():
+    from baberu.transcription.transcript_segmented import _clip_bounds
+
+    assert _clip_bounds(1300, 3000, 1.0) == (300, 4000)
+    assert _clip_bounds(400, 3000, 1.0) == (0, 4000)
+    assert _clip_bounds(1300, 3000, 0.0) == (1300, 3000)
+
+
+def test_words_in_the_margin_are_dropped():
+    from baberu.transcription.transcript_segmented import _within
+
+    t = TranscriptionResult(segments=[
+        TranscribedSegment(words=[word("前", 0.2, 0.6), word("優", 0.9, 1.1), word("勝", 1.1, 1.3)]),
+        TranscribedSegment(words=[word("後", 3.2, 3.6)]),
+    ])
+
+    assert texts(_within(t, 1.0, 3.0)) == ["優", "勝"]   # 優's middle (1.0) is inside; 前 and 後 aren't

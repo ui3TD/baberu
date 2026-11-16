@@ -56,6 +56,9 @@ class RunRequest:
     dry_run: bool = False
     clean: bool = False
     redo: set[str] = field(default_factory=set)
+    keyterm_lists: list[str] = field(default_factory=list)
+    use_keyterms: bool = True
+    keyterms_dir: Path | None = None
 
 
 def _existing_file(value: str, description: str) -> Path:
@@ -205,6 +208,8 @@ def build_request(args, settings: Settings) -> RunRequest:
         overwrite=args.overwrite,
         dry_run=args.dry_run,
         clean=args.clean,
+        keyterm_lists=list(args.keyterms),
+        use_keyterms=settings.keyterms.enabled and not args.no_keyterms,
     )
     kind = _read_source(args, request)
     _read_extra_inputs(args, request)
@@ -255,6 +260,8 @@ def _run(args) -> None:
     )
 
     request = build_request(args, settings)
+    lists_dir = settings.keyterms.lists_dir
+    request.keyterms_dir = Path(lists_dir) if lists_dir else config_setup.config_dir(config_path) / "keyterms"
     settings = config_setup.apply_profiles(settings, request.lang_from)
     if args.diagnose:
         pipeline.diagnose(request, settings)

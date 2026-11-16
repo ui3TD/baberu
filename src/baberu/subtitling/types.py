@@ -37,3 +37,6 @@ class SubtitleLine(pydantic.BaseModel):
     start: float
     end: float
     speaker: str = "Unknown"
+    # Whether the text ended in the middle of a word (no delimiter, comma or space)
+    # before it was cleaned. Only used while converting a transcript.
+    open_end: bool = False

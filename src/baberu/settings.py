@@ -1,5 +1,5 @@
 """The shape of config.yaml. A setting left out of the file uses the default here."""
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -31,11 +31,26 @@ class ParsingSettings(BaseModel):
     hard_max_chars: int = 50
     hard_max_carryover: int = 15
     max_time_gap_sec: float = 2.0
+    # A drawn-out syllable can split a word across a pause (乾…杯). A tail this short
+    # is joined back onto its line, unless the pause is longer than fragment_max_gap_sec.
+    fragment_max_letters: int = 2
+    fragment_max_gap_sec: float = 5.0
     parsing_model: str = "gpt-4.1-mini"
+    parsing_effort: str | None = None  # how hard the line splitter thinks; empty: the provider's default
 
 
 class MistimedLineSettings(BaseModel):
     mistimed_line_thresh_sec: float = 0.1
+    # How the fix stage gives time to lines shorter than the threshold:
+    #   "backfill": they take the time before them (silence, or the line before's).
+    #   "squeezed": only a line pressed against the next one, after a silence, starts
+    #               earlier, by about the time its letters take to say. Scribe v3 gets
+    #               starts right otherwise, so everything else is left to padding.
+    method: Literal["backfill", "squeezed"] = "backfill"
+    squeezed_letters_per_sec: float = 8.0
+    squeezed_min_sec: float = 0.3
+    squeezed_max_sec: float = 1.0
+    squeezed_touch_sec: float = 0.1  # "pressed against": the next line starts within this
 
 
 class PaddingSettings(BaseModel):
@@ -52,6 +67,9 @@ class MistimedSegmentSettings(BaseModel):
     seg_foretrace_limit: int = 5
     seg_min_delay: float = 10.0
     seg_max_gap: int = 4
+    # The second pass cuts each clip this much wider on both sides, so the service hears
+    # some lead-in and lead-out. Words that land in the margin are dropped.
+    clip_margin_sec: float = 1.0
 
 
 class AnomalySettings(BaseModel):
@@ -73,6 +91,7 @@ class TranslationSettings(BaseModel):
     default_model: str = "gemini-2.5-pro"
     websearch_model: str = "gemini-2.5-pro"
     fallback_model: str = "o3"
+    effort: str | None = None  # how hard the translation and notes models think; empty: the provider's default
     default_lang_to: str = "en"
     context_lines: int = 100
     batch_lines: int = Field(default=50, ge=1)
@@ -81,6 +100,22 @@ class TranslationSettings(BaseModel):
     server_retries: int = 20
     max_cont_lines: int = 5
     confirm_auto_context: bool = True
+
+
+class KeytermSettings(BaseModel):
+    """Words sent to the transcription service so names and jargon come out right."""
+    enabled: bool = True
+    lists_dir: str = ""  # empty: a keyterms folder beside the config file in use
+    # A YouTube channel_id, mapped to the lists used for every video from it.
+    channels: dict[str, list[str]] = {}
+    # Picks names out of the video's title and description. Empty: use the tags and lists only.
+    llm_model: str = ""
+    effort: str | None = "low"
+    # Scribe charges 20% more for keyterms, and above 100 bills every request for at least
+    # 20 seconds, which adds up over the short clips of a second pass.
+    max_terms: int = Field(default=100, ge=1, le=1000)
+    confirm: bool = True       # show the list and wait, so keyterms.txt can be edited before paying
+    retranscribe: bool = True  # send them on the second pass too
 
 
 # Sections a profile may change. The rest describe the user, not the transcript.
@@ -107,6 +142,7 @@ class Settings(BaseModel):
     mistimed_segs: MistimedSegmentSettings = MistimedSegmentSettings()
     anomalies: AnomalySettings = AnomalySettings()
     translation: TranslationSettings = TranslationSettings()
+    keyterms: KeytermSettings = KeytermSettings()
     # Scribe v1 was tuned with a low diarization threshold; newer models use the service's default.
     profiles: list[Profile] = [Profile(model="scribe_v1",
                                        settings={"transcription": {"options": {"diarization_threshold": 0.1}}})]

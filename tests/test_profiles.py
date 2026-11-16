@@ -120,3 +120,21 @@ def test_changed_options_stop_before_reusing(workspace, monkeypatch, capsys):
         run_cli(monkeypatch, workspace / "show.m4a", "-s")
 
     assert "different seed" in capsys.readouterr().err and len(transcriber.calls) == 1
+
+
+def test_a_dry_run_reports_changed_options(workspace, monkeypatch, capsys):
+    transcriber = FakeTranscriber()
+    transcriber.request_options = lambda: {"seed": 7}
+    monkeypatch.setattr(AIToolFactory, "get_transcription_provider", staticmethod(lambda model, options=None: transcriber))
+    monkeypatch.setattr("baberu.tools.av_utils.duration_seconds", lambda path: 60.0)
+    (workspace / "show.m4a").write_bytes(b"audio")
+    config = config_setup.load_config()
+    config["transcription"]["options"] = {"seed": 7}
+    run_cli(monkeypatch, workspace / "show.m4a", "-s")
+    capsys.readouterr()
+
+    config["transcription"]["options"] = {"seed": 8}
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, workspace / "show.m4a", "-c", "--dry-run")
+
+    assert "different seed" in capsys.readouterr().err

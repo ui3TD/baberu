@@ -17,8 +17,9 @@ _UNFILTERED = [
 class GeminiProvider(LLMProvider):
     supports_grounding = True
 
-    def __init__(self, api_key: str, model: str, system_prompt: str | None = None, max_retries: int = 5):
-        super().__init__(api_key, model, system_prompt, max_retries)
+    def __init__(self, api_key: str, model: str, system_prompt: str | None = None, max_retries: int = 5,
+                 effort: str | None = None):
+        super().__init__(api_key, model, system_prompt, max_retries, effort)
         self.client = Client(api_key=self.api_key)
 
     def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:

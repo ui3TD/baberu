@@ -182,7 +182,7 @@ def _translate_batch(batch: _Batch,
             batch.attempts.append(attempt)
 
             try:
-                completion = llm.complete(prompt)
+                completion = llm.complete(prompt, cache_prefix=translation_prompts.context_section(batch.context_prompt))
             except Exception as error:
                 attempt["status"] = f"error: {type(error).__name__}"
                 if is_last:
@@ -294,9 +294,11 @@ def _save_report(report: dict, report_file: Path | None) -> None:
         atomic_write_text(report_file, json.dumps(report, ensure_ascii=False, indent=2))
 
 
-def generate_context(subtitles: SSAFile, llm: LLMProvider, filename: str, lang_from: str, lang_to: str) -> str:
+def generate_context(subtitles: SSAFile, llm: LLMProvider, filename: str, lang_from: str, lang_to: str,
+                     details: str = "") -> str:
     """Asks a web-grounded model for a summary and glossary to guide translation."""
-    completion = llm.complete(translation_prompts.context_prompt(subtitles, filename, lang_from, lang_to), grounding=True)
+    prompt = translation_prompts.context_prompt(subtitles, filename, lang_from, lang_to, details)
+    completion = llm.complete(prompt, grounding=True)
     if not completion.text.strip():
         raise BaberuError(f"{llm.model} returned no context ({completion.status}). "
                           f"Try again, or give your own notes with a context file.")
