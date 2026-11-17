@@ -105,3 +105,13 @@ def test_bad_llm_split_falls_back_to_character_count(fake_llms):
     )
 
     assert texts(subs)[0] == f"one two {CONTINUE_FLAG}"
+
+
+def test_shift_moves_every_line_and_stops_at_zero():
+    subs = transcript_conversion.convert_transcript_to_subs(
+        transcript(word("one", 0.05, 1.0), word("two", 5.0, 6.0)),
+        ParsingSettings(delimiters=[], soft_delimiters=[], remove_text=[], max_time_gap_sec=2.0,
+                        parsing_model="", shift_sec=-0.1),
+    )
+
+    assert [(e.start, e.end) for e in subs.events] == [(0, 900), (4900, 5900)]

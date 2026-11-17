@@ -68,7 +68,8 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
 
     The transcript is normalized and repaired in a copy; the caller's is unchanged.
     `split_cache` holds the parsing model's answers by question; a question already
-    in it is not asked again.
+    in it is not asked again. Every line is moved by `parsing.shift_sec`, starting
+    no earlier than 0.
     """
     get_splitter = _split_asker(parsing, split_cache)
     transcript = repair(normalize(transcript, limits), limits or AnomalySettings())
@@ -79,12 +80,13 @@ def convert_transcript_to_subs(transcript: TranscriptionResult,
     all_lines = _merge_fragments(all_lines, parsing)
 
     sub_file: SSAFile = SSAFile()
+    shift_ms = pysubs2.time.times_to_ms(s=parsing.shift_sec)
 
     for line in all_lines:
-        start = pysubs2.time.times_to_ms(s=line.start)
+        start = max(pysubs2.time.times_to_ms(s=line.start) + shift_ms, 0)
         event = SSAEvent(
             start=start,
-            end=max(pysubs2.time.times_to_ms(s=line.end), start + 1),  # never zero or negative length
+            end=max(pysubs2.time.times_to_ms(s=line.end) + shift_ms, start + 1),  # never zero or negative length
             text=line.text,
             style="Default"
         )

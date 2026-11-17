@@ -37,6 +37,7 @@ class ParsingSettings(BaseModel):
     fragment_max_gap_sec: float = 5.0
     parsing_model: str = "gpt-4.1-mini"
     parsing_effort: str | None = None  # how hard the line splitter thinks; empty: the provider's default
+    shift_sec: float = 0.0  # added to every line's start and end; negative: earlier
 
 
 class MistimedLineSettings(BaseModel):
