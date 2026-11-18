@@ -6,15 +6,18 @@ from langcodes.tag_parser import LanguageTagError
 from pysubs2 import SSAEvent, SSAFile
 
 from baberu import constants
+from baberu.providers.llm.base import Prompt
 
 logger = logging.getLogger(__name__)
 
 RETRY_MARKER = "Translate only these entries, keeping their numbers:\n\n"
 
 
-def system_prompt(lang_from: str, lang_to: str) -> str:
-    """Creates the system prompt for the LLM translator role."""
+def system_prompt(lang_from: str, lang_to: str, frames: bool = False) -> str:
+    """Creates the system prompt for the LLM translator role. `frames` adds a line about video frames."""
     prompt: str = f"You are a professional translator from {_get_lang_name(lang_from)} to natural colloquial {_get_lang_name(lang_to)}. Translate the provided subtitle entries liberally and concisely, as subtitles to be read at a glance: prefer short wording, while preserving the meaning and nuance. Return ONLY the translated entries, each with its number, maintaining EXACT entry count and order. Do not merge entries.\n\nSpecial instructions:\n1. '{constants.CONTINUE_FLAG}' indicates that text was split mid-sentence to be continued on the next entries. You must omit '{constants.CONTINUE_FLAG}' from the translated text.\n2. As per ASS syntax, use the special escape character '\\N' for line breaks within a subtitle entry.\n3. Use ASS syntax for styling if needed (e.g. {{\\i1}}italics{{\\i0}}). \n4. Do not split {_get_lang_name(lang_to)} words across subtitle entries.\n5. Where the context gives a term as \"(Mis-spelled: X)\", any X in the source is that term misheard: always translate it as the correct term."
+    if frames:
+        prompt += "\n6. Frames from the video may follow the entries. Use them to understand who is speaking and what is happening."
     return prompt
 
 
@@ -58,6 +61,44 @@ def targeted_retry_prompt(previous_translations: list[str],
             f"so it fits the entries around it. Return one line per entry and nothing else. "
             f"{RETRY_MARKER}"
             f"{_entries([current_batch[i] for i in wanted], [i + 1 for i in wanted])}")
+
+
+def with_frames(prompt: str, frames: list, events: list[SSAEvent], numbers: list[int] | None = None) -> Prompt:
+    """Adds video frames after a prompt, each marked with its time and the entries it shows.
+
+    `frames` are frames.Frame. `numbers` are the numbers `events` have in the prompt,
+    1, 2, ... by default. With no frames, returns `prompt` as it is.
+    """
+    if not frames:
+        return prompt
+    numbers = numbers or list(range(1, len(events) + 1))
+    parts: list = [prompt, "\n\nFrames from the video, each marked with the entries it shows:"]
+    for frame in frames:
+        shown = [number for number, event in zip(numbers, events) if frame.scene.overlaps(event)]
+        parts += [f"\nFrame {_clock(frame.scene.start_ms)}-{_clock(frame.scene.end_ms)}, {_entry_label(shown)}:",
+                  frame.image]
+    return parts
+
+
+def _clock(ms: int) -> str:
+    """A time as m:ss, or h:mm:ss from one hour on."""
+    hours, rest = divmod(ms // 1000, 3600)
+    minutes, seconds = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+
+
+def _entry_label(numbers: list[int]) -> str:
+    """'entry 4', 'entries 4-6' or 'entries 2, 4-6'; 'no entries' for none."""
+    if not numbers:
+        return "no entries"
+    runs: list[list[int]] = []
+    for number in sorted(numbers):
+        if runs and number == runs[-1][1] + 1:
+            runs[-1][1] = number
+        else:
+            runs.append([number, number])
+    text = ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
+    return f"entry {text}" if len(numbers) == 1 else f"entries {text}"
 
 
 def context_section(context_prompt: str) -> str:

@@ -1,6 +1,6 @@
 from anthropic import Anthropic
 
-from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider
+from .base import COMPLETE, REFUSED, TRUNCATED, Completion, Image, LLMProvider, Prompt, prompt_parts
 
 MAX_OUTPUT_TOKENS = 64000
 MAX_CONTINUATIONS = 5
@@ -10,6 +10,7 @@ class ClaudeProvider(LLMProvider):
     """Claude 4.6 and later, which use adaptive thinking and don't accept prefill."""
 
     supports_grounding = True
+    supports_images = True
 
     def __init__(self, api_key: str, model: str, system_prompt: str | None = None,
                  max_retries: int = 5, effort: str | None = None):
@@ -17,7 +18,7 @@ class ClaudeProvider(LLMProvider):
         # SDK retries are off; LLMProvider.complete retries.
         self.client = Anthropic(api_key=self.api_key, max_retries=0)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
+    def _complete(self, user_prompt: Prompt, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         request = {
             "model": self.model,
             "max_tokens": MAX_OUTPUT_TOKENS,
@@ -29,7 +30,7 @@ class ClaudeProvider(LLMProvider):
         if grounding:
             request["tools"] = [{"type": "web_search_20260209", "name": "web_search"}]
 
-        messages = [{"role": "user", "content": user_prompt}]
+        messages = [{"role": "user", "content": user_content(user_prompt)}]
         message = self._send(request, messages)
 
         # A long web search can pause; sending the turn back resumes it.
@@ -49,3 +50,12 @@ class ClaudeProvider(LLMProvider):
     def _send(self, request: dict, messages: list[dict]):
         with self.client.messages.stream(messages=messages, **request) as stream:
             return stream.get_final_message()
+
+
+def user_content(prompt: Prompt) -> str | list[dict]:
+    """The user turn's content: the text as it is, or text and image blocks in order."""
+    if isinstance(prompt, str):
+        return prompt
+    return [{"type": "image", "source": {"type": "base64", "media_type": part.media_type, "data": part.base64}}
+            if isinstance(part, Image) else {"type": "text", "text": part}
+            for part in prompt_parts(prompt) if part != ""]

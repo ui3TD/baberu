@@ -96,6 +96,17 @@ translation:
   max_cont_lines: 5
   confirm_auto_context: true
 
+# Video frames sent with each translation batch to models that take images.
+# One frame from the middle of each scene, marked with the subtitle entries it shows.
+frames:
+  enabled: true
+  height: 480            # downloads video at most this tall; frames are scaled to this height
+  min_height: 360        # a shorter video is translated without frames
+  scene_threshold: 0.3   # ffmpeg scene score counted as a cut (0-1)
+  min_scene_sec: 1.5     # a shorter scene joins the scene before it
+  max_scene_sec: 20.0    # a longer scene gets one frame per this many seconds
+  max_per_batch: 24      # the most frames in one request; the longest scenes are kept
+
 # Uploading translations to nekocap.com (baberu publish, or --nekocap). Run baberu-nekocap-login once
 # to save your login in .env as NEKOCAP_SESSION_TOKEN.
 nekocap:

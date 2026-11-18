@@ -103,6 +103,17 @@ class TranslationSettings(BaseModel):
     confirm_auto_context: bool = True
 
 
+class FrameSettings(BaseModel):
+    """Video frames sent with each translation batch to models that take images."""
+    enabled: bool = True
+    height: int = Field(default=480, ge=144)       # downloads video at most this tall; frames are scaled to it
+    min_height: int = Field(default=360, ge=1)     # a shorter video is translated without frames
+    scene_threshold: float = Field(default=0.3, gt=0, lt=1)  # ffmpeg scene score counted as a cut
+    min_scene_sec: float = Field(default=1.5, ge=0)          # a shorter scene joins the scene before it
+    max_scene_sec: float = Field(default=20.0, gt=0)         # a longer scene gets one frame per this many seconds
+    max_per_batch: int = Field(default=24, ge=1, le=100)     # the most frames in one request; the longest scenes are kept
+
+
 class KeytermSettings(BaseModel):
     """Names and jargon sent to the transcription service."""
     enabled: bool = True
@@ -164,6 +175,7 @@ class Settings(BaseModel):
     mistimed_segs: MistimedSegmentSettings = MistimedSegmentSettings()
     anomalies: AnomalySettings = AnomalySettings()
     translation: TranslationSettings = TranslationSettings()
+    frames: FrameSettings = FrameSettings()
     keyterms: KeytermSettings = KeytermSettings()
     nekocap: NekoCapSettings = NekoCapSettings()
     # Scribe v1 uses a diarization threshold of 0.1; other models use the service's default.

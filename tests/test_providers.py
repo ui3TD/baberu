@@ -345,3 +345,101 @@ def test_providers_that_cannot_cache_ignore_the_prefix():
     provider = ScriptedProvider(["ok"])
 
     assert provider.complete("Context: x", cache_prefix="Context:").text == "ok"
+
+
+# --- Images ---
+
+def test_images_to_a_provider_that_cannot_take_them_are_an_error():
+    from baberu.providers.llm.base import Image
+
+    provider = ScriptedProvider(["ok"])
+
+    with pytest.raises(ValueError, match="images"):
+        provider.complete(["hi", Image(b"x")])
+
+
+def test_openrouter_sends_images_after_the_cached_prefix():
+    from baberu.providers.llm.base import Image
+    from baberu.providers.llm.openrouter import OpenRouterProvider
+
+    messages = OpenRouterProvider.messages(["Context:\nnotes\n\nTranslate 1. x", "Frame 0:00-0:02, entry 1:",
+                                            Image(b"jpg")], "sys", cache_prefix="Context:\nnotes\n\n")
+
+    assert messages[1]["content"] == [
+        {"type": "text", "text": "Context:\nnotes\n\n", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "Translate 1. x"},
+        {"type": "text", "text": "Frame 0:00-0:02, entry 1:"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,anBn"}},
+    ]
+
+
+def test_openrouter_takes_images_when_the_model_lists_image_input(monkeypatch):
+    from baberu.providers.llm import openrouter
+
+    monkeypatch.setattr(openrouter, "input_modalities",
+                        lambda: {"a/vision": frozenset({"text", "image"}), "a/text": frozenset({"text"})})
+
+    assert openrouter.OpenRouterProvider("k", "a/vision").takes_images()
+    assert openrouter.OpenRouterProvider("k", "a/vision:online").takes_images()
+    assert not openrouter.OpenRouterProvider("k", "a/text").takes_images()
+    assert not openrouter.OpenRouterProvider("k", "a/unknown").takes_images()
+
+
+def test_openrouter_sends_no_images_when_the_model_list_cannot_be_read(monkeypatch, caplog):
+    import httpx
+
+    from baberu.providers.llm import openrouter
+
+    def unreachable():
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(openrouter, "input_modalities", unreachable)
+
+    assert not openrouter.OpenRouterProvider("k", "a/vision").takes_images()
+    assert "model list" in caplog.text
+
+
+def test_claude_sends_images_as_base64_blocks():
+    from baberu.providers.llm.base import Image
+
+    provider, seen = claude_with([text_message("ok")])
+
+    provider.complete(["look", Image(b"png", "image/png")])
+
+    assert seen[0]["messages"][0]["content"] == [
+        {"type": "text", "text": "look"},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"}},
+    ]
+
+
+def test_gemini_sends_images_as_inline_bytes():
+    from baberu.providers.llm.base import Image
+    from baberu.providers.llm.gemini import user_parts
+
+    parts = user_parts(["look", Image(b"jpg")])
+
+    assert parts[0].text == "look"
+    assert (parts[1].inline_data.data, parts[1].inline_data.mime_type) == (b"jpg", "image/jpeg")
+
+
+def test_gpt_sends_images_as_input_image_parts():
+    from baberu.providers.llm.base import Image
+    from baberu.providers.llm.openai import user_content
+
+    assert user_content("plain") == "plain"
+    assert user_content(["look", Image(b"jpg")]) == [
+        {"type": "input_text", "text": "look"},
+        {"type": "input_image", "image_url": "data:image/jpeg;base64,anBn"},
+    ]
+
+
+def test_the_log_shows_images_by_size_only(caplog):
+    import logging
+
+    from baberu.providers.llm.base import Image
+
+    provider, _ = claude_with([text_message("ok")])
+    with caplog.at_level(logging.DEBUG):
+        provider.complete(["look", Image(b"x" * 4096)])
+
+    assert "look[image, 4 KB]" in caplog.text

@@ -9,7 +9,7 @@ import yaml
 from pysubs2 import SSAEvent, SSAFile
 
 from baberu.providers.factory import AIToolFactory
-from baberu.providers.llm.base import Completion
+from baberu.providers.llm.base import Completion, prompt_text
 from baberu.providers.transcription.base import TranscriptionProvider
 from baberu.providers.transcription.openai import WhisperProvider
 
@@ -29,8 +29,12 @@ def numbered_subs(count: int) -> SSAFile:
     return make_subs([(i * 2000, i * 2000 + 1500, f"line{i}") for i in range(count)])
 
 
-def numbered_entries(prompt: str) -> list[tuple[int, str]]:
-    """Pulls the requested (number, source text) entries out of a translation or retry prompt."""
+def numbered_entries(prompt) -> list[tuple[int, str]]:
+    """Pulls the requested (number, source text) entries out of a translation or retry prompt.
+
+    A prompt with pictures is read from its first part, the text before any frames.
+    """
+    prompt = prompt if isinstance(prompt, str) else prompt[0]
     body = prompt.split(RETRY_MARKER if RETRY_MARKER in prompt else BATCH_MARKER)[-1]
     return [(int(m.group(1)), m.group(2)) for m in map(ENTRY.match, body.split("\n")) if m]
 
@@ -40,8 +44,8 @@ def batch_entries(prompt: str) -> list[str]:
     return [text for _, text in numbered_entries(prompt)]
 
 
-def is_retry(prompt: str) -> bool:
-    return RETRY_MARKER in prompt
+def is_retry(prompt) -> bool:
+    return RETRY_MARKER in prompt_text(prompt)
 
 
 def translate_all(prompt: str) -> str:
@@ -58,11 +62,16 @@ class FakeLLM:
     """Answers with what `responder` returns: text, a Completion, or an exception to raise."""
     supports_grounding = True
 
-    def __init__(self, responder: Callable[[str], "str | Completion | Exception"], model: str = "fake-model"):
+    def __init__(self, responder: Callable[[str], "str | Completion | Exception"], model: str = "fake-model",
+                 images: bool = False):
         self.responder = responder
         self.model = model
-        self.calls: list[str] = []
+        self.images = images
+        self.calls: list = []
         self.kwargs: list[dict] = []
+
+    def takes_images(self) -> bool:
+        return self.images
 
     def complete(self, user_prompt: str, system_prompt: str | None = None, **kwargs) -> Completion:
         self.calls.append(user_prompt)
@@ -116,6 +125,7 @@ def workspace(tmp_path, monkeypatch, fake_llms):
     config["translation"].update(confirm_auto_context=False, websearch_model="main", default_model="main", fallback_model="main")
     config["logging"]["log_to_file"] = False
     config["parsing"]["parsing_model"] = ""
+    config["frames"]["enabled"] = False
     monkeypatch.setattr("baberu.setup.config_setup.load_config", lambda *a: config)
     monkeypatch.setattr("baberu.setup.logging_setup.setup_logging", lambda **k: None)
     monkeypatch.delenv("BABERU_DIR", raising=False)

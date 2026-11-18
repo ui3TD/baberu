@@ -15,9 +15,12 @@ logger = logging.getLogger(__name__)
 # yt-dlp's usual naming, with the title capped at 120 bytes.
 DOWNLOAD_NAME = "%(title).120B [%(id)s].%(ext)s"
 
-def _download_options(directory: Path | None = None) -> dict[str, Any]:
+def _download_options(directory: Path | None = None, max_height: int | None = None) -> dict[str, Any]:
+    """yt-dlp's options. With `max_height`, the best video at most that tall; with None, the smallest video."""
+    video_format = (f'bestaudio+bestvideo[height<={max_height}]/best[height<={max_height}]/best'
+                    if max_height else 'bestaudio+worstvideo/best')
     options: dict[str, Any] = {
-        'format': 'bestaudio+worstvideo/best',
+        'format': video_format,
         'outtmpl': DOWNLOAD_NAME,
         'retries': 500,
         'quiet': True,
@@ -30,9 +33,12 @@ def _download_options(directory: Path | None = None) -> dict[str, Any]:
     return options
 
 
-def download(url: str, directory: Path) -> tuple[Path, dict[str, Any]]:
-    """Downloads audio or video from a URL into a folder, returning the file's path and its metadata."""
-    with yt_dlp.YoutubeDL(_download_options(directory)) as ydl:
+def download(url: str, directory: Path, max_height: int | None = None) -> tuple[Path, dict[str, Any]]:
+    """Downloads audio or video from a URL into a folder, returning the file's path and its metadata.
+
+    `max_height` picks the best video at most that many pixels tall; None picks the smallest video.
+    """
+    with yt_dlp.YoutubeDL(_download_options(directory, max_height)) as ydl:
         info: dict[str, Any] = ydl.extract_info(url, download=True) or {}
         if not info:
             raise RuntimeError(f"Failed to download: {url}")
@@ -76,6 +82,59 @@ def duration_seconds(media_file: Path) -> float | None:
         return float(ffmpeg.probe(str(media_file))["format"]["duration"])
     except (ffmpeg.Error, KeyError, ValueError, OSError):
         return None
+
+
+def video_height(media_file: Path) -> int | None:
+    """The height in pixels of a file's first video stream, or None if it has none or can't be read."""
+    try:
+        streams = ffmpeg.probe(str(media_file), select_streams="v:0")["streams"]
+        return int(streams[0]["height"]) if streams else None
+    except (ffmpeg.Error, KeyError, ValueError, OSError):
+        return None
+
+
+_PTS_TIME = re.compile(r"pts_time:\s*([0-9.]+)")
+
+
+def scene_cuts(video_file: Path, threshold: float) -> list[float]:
+    """The times, in seconds, where a video cuts to a new scene.
+
+    One ffmpeg pass over a 320-pixel-wide copy of the picture. A frame whose scene
+    score is above `threshold` (0-1) starts a new scene.
+    """
+    try:
+        _, err = (
+            ffmpeg
+            .input(str(video_file))
+            .video
+            .filter("scale", 320, -2)
+            .filter("select", f"gt(scene,{threshold})")
+            .filter("showinfo")
+            .output("-", format="null")
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+    except ffmpeg.Error as e:
+        logger.debug(f"Error finding scene cuts: {e.stderr.decode(errors='replace')}")
+        raise
+    return [float(match) for match in _PTS_TIME.findall(err.decode(errors="replace"))]
+
+
+def grab_frame(video_file: Path, seconds: float, height: int, output_file: Path) -> Path:
+    """Saves the frame at `seconds` as a JPEG scaled to `height` pixels tall."""
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with atomic_path(output_file) as temporary:
+            (
+                ffmpeg
+                .input(str(video_file), ss=seconds)
+                .filter("scale", -2, height)
+                .output(str(temporary), vframes=1, format="image2", vcodec="mjpeg", **{"q:v": 3})
+                .run(quiet=True, overwrite_output=True)
+            )
+    except ffmpeg.Error as e:
+        logger.debug(f"Error grabbing a frame at {seconds:.2f}s: {e.stderr.decode(errors='replace')}")
+        raise
+    return output_file
 
 
 def extract_audio(video_file: Path, output_file: Path) -> Path:

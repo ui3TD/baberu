@@ -10,6 +10,8 @@ import logging
 import shutil
 import sys
 
+import ffmpeg
+
 from baberu.providers.factory import AIToolFactory
 from baberu.providers.llm import base as llm_base
 from baberu.providers.llm.base import LLMProvider
@@ -21,7 +23,7 @@ from baberu.constants import CODEC_TO_EXTENSION_MAP
 from baberu.errors import BaberuError
 from baberu.job import Job, Stage, enclosing_job
 from baberu.settings import Settings, TranslationSettings
-from baberu.subtitling import sub_correction, sub_translation, sub_utils, translation_prompts
+from baberu.subtitling import frames, sub_correction, sub_translation, sub_utils, translation_prompts
 from baberu.subtitling.types import LineRange
 from baberu.tools import av_utils
 from baberu.tools.file_utils import FileKind, atomic_path, atomic_write_text, file_hash, kind_of
@@ -34,7 +36,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 RUN, REUSE = "run", "reuse"
 _PAID = {"transcribe", "retranscribe", "context", "translate"}
-_NEEDS_FFMPEG = {"extract", "transcribe", "retranscribe", "hardcode", "audio_to_video"}
+_NEEDS_FFMPEG = {"extract", "transcribe", "retranscribe", "frames", "hardcode", "audio_to_video"}
 _SUBTITLE_STAGE_NAMES = (("pad", "padded"), ("translate", "translated"), ("fix", "fixed"),
                          ("retranscribe", "2pass"), ("convert", "raw"))
 
@@ -66,6 +68,11 @@ class Plan:
     inputs: dict[str, Path | None] = field(default_factory=dict)
     # --lines with -t on a job that has a whole translation: only those lines are translated again.
     in_place: bool = False
+    # The video the frames stage reads, and the height of its frames.
+    frames_video: Path | None = None
+    frames_height: int = 0
+    # The note shown when a translation runs without frames, e.g. "no frames: show.webm is 144p, ...".
+    frames_off: str = ""
 
     def action(self, name: str) -> str | None:
         return next((stage.action for stage in self.stages if stage.name == name), None)
@@ -162,17 +169,24 @@ def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: P
     if has_subtitles and (request.fix or (from_transcript and (request.translate or request.pad)
                                           and job.has(job.path(Stage.FIXED)))):
         stages.append(PlannedStage("fix", RUN))
+    planned_frames = _PlannedFrames()
     if has_subtitles and request.translate:
         translate = RUN if in_place else _reuse_or_run(request, job, "translate", job.path(Stage.TRANSLATED))
+        if translate == RUN:
+            planned_frames = _plan_frames(request, settings, job, input_file, video)
+            if planned_frames.stage:
+                stages.append(planned_frames.stage)
         if translate == RUN and not request.context_file:
             stages.append(PlannedStage("context", _reuse_or_run(request, job, "context", job.path(Stage.CONTEXT))))
         detail = f"lines {request.line_range.label[1:]}, in place" if in_place else _line_count_detail(request, job)
+        detail = ", ".join(filter(None, [detail, planned_frames.off]))
         stages.append(PlannedStage("translate", translate, detail))
     if has_subtitles and (request.pad or (request.translate and job.has(job.path(Stage.PADDED)))):
         stages.append(PlannedStage("pad", RUN))
     _plan_keyterms(request, settings, job, stages)
 
-    plan = Plan(stages, input_file, video, audio, in_place=in_place)
+    plan = Plan(stages, input_file, video, audio, in_place=in_place, frames_video=planned_frames.video,
+                frames_height=planned_frames.height, frames_off=planned_frames.off)
     plan.inputs = _plan_inputs(request, settings, job, stages)
     names = {stage.name for stage in stages}
 
@@ -189,6 +203,70 @@ def _build_plan(request: RunRequest, settings: Settings, job: Job, input_file: P
     if request.nekocap and plan.action("translate"):
         plan.stages.append(PlannedStage("nekocap", RUN, publish.describe(job, settings, request.nekocap_privacy)))
     return plan
+
+
+@dataclass
+class _PlannedFrames:
+    """The frames stage, the video it reads and the frames' height; or, in `off`, the note for a run without frames."""
+    stage: PlannedStage | None = None
+    video: Path | None = None
+    height: int = 0
+    off: str = ""
+
+
+def _find_video(job: Job, input_file: Path, video: Path | None) -> Path | None:
+    """The video given, else one beside the input with the job's name, else the job's recorded source."""
+    if video:
+        return video
+    sibling = _sibling(job, input_file, FileKind.VIDEO)
+    if sibling:
+        return sibling
+    source = job.manifest.get("source")
+    for folder in dict.fromkeys([input_file.parent, job.folder.parent]):
+        candidate = folder / source if source else None
+        if candidate and candidate.is_file() and kind_of(candidate) is FileKind.VIDEO:
+            return candidate
+    return None
+
+
+def _takes_images(model: str) -> bool:
+    try:
+        return AIToolFactory.get_llm_provider(model).takes_images()
+    except ValueError:
+        return False
+
+
+def _cuts_match(job: Job, video: Path, threshold: float) -> bool:
+    """Whether the saved scene cuts were found in this video with this threshold."""
+    origin = job.origin_of(job.scenes_path)
+    return bool(origin) and job.scenes_path.exists() and origin.get("source") == video.name \
+        and (origin.get("options") or {}).get("threshold") == threshold
+
+
+def _plan_frames(request: RunRequest, settings: Settings, job: Job, input_file: Path,
+                 video: Path | None) -> _PlannedFrames:
+    """Plans the frames stage for a translation, or gives the note for a run without frames. Reads only."""
+    options = settings.frames
+    if not options.enabled:
+        return _PlannedFrames()
+    video = _find_video(job, input_file, video)
+    if video is None:
+        return _PlannedFrames(off="no frames: no video found")
+    height = av_utils.video_height(video)
+    if height is None:
+        return _PlannedFrames(off=f"no frames: can't read the size of {video.name}")
+    if height < options.min_height:
+        return _PlannedFrames(off=f"no frames: {video.name} is {height}p, under {options.min_height}p "
+                                  f"(delete it to download it again at {options.height}p)")
+    if not _takes_images(request.model):
+        return _PlannedFrames(off=f"no frames: {request.model} doesn't take images")
+
+    action = _reuse_or_run(request, job, "frames", job.scenes_path)
+    if action == REUSE and not _cuts_match(job, video, options.scene_threshold):
+        action = RUN
+    frame_height = min(height, options.height)
+    return _PlannedFrames(PlannedStage("frames", action, f"{frame_height}p, up to {options.max_per_batch} a batch"),
+                          video, frame_height)
 
 
 _SUBTITLE_OUTPUTS = {"retranscribe": Stage.TWOPASS, "fix": Stage.FIXED, "translate": Stage.TRANSLATED,
@@ -427,6 +505,8 @@ def _clear_redone_work(request: RunRequest, job: Job, plan: Plan) -> None:
     if _wants_redo(request, "retranscribe"):
         job.clear(job.path(Stage.TWOPASS))
         job.clear_segments()
+    if _wants_redo(request, "frames"):
+        job.clear_frames()
     if _wants_redo(request, "context"):
         job.clear(job.path(Stage.CONTEXT))
     if _wants_redo(request, "translate"):
@@ -763,6 +843,32 @@ def _video_details(job: Job) -> str:
     return "\n".join(lines)
 
 
+def _frame_source(job: Job, plan: Plan, settings: Settings) -> frames.FrameSource | None:
+    """Finds the video's scenes, or reuses them, and gives the frames for translation. None when ffmpeg can't read it."""
+    options = settings.frames
+    video = plan.frames_video
+    if plan.action("frames") == REUSE:
+        _announce_reuse("frames", job.scenes_path)
+        cuts, duration = frames.load_cuts(job.scenes_path)
+    else:
+        logger.info(f"frames: finding the scenes in {video.name}...")
+        duration = av_utils.duration_seconds(video)
+        try:
+            cuts = av_utils.scene_cuts(video, options.scene_threshold) if duration else None
+        except ffmpeg.Error:
+            cuts = None
+        if cuts is None:
+            logger.warning(f"frames: ffmpeg couldn't read {video.name}; translating without frames")
+            return None
+        shutil.rmtree(job.frames_dir, ignore_errors=True)
+        frames.save_cuts(job.scenes_path, cuts, duration)
+        job.record_origin(job.scenes_path, video.name, options={"threshold": options.scene_threshold})
+        job.save()
+    scenes = frames.scenes_from_cuts(cuts, duration, options.min_scene_sec, options.max_scene_sec)
+    logger.info(f"frames: {len(scenes)} scenes")
+    return frames.FrameSource(video, scenes, job.frames_dir, plan.frames_height, options.max_per_batch)
+
+
 def _fallback_llm(system_prompt: str, model: str, options: TranslationSettings) -> LLMProvider | None:
     """The backup translator. None when there is none or its API key is missing."""
     if not options.fallback_model or options.fallback_model == model:
@@ -781,9 +887,10 @@ def _translate(sub_data: SSAFile,
                job: Job,
                plan: Plan,
                line_range: LineRange | None,
-               options: TranslationSettings) -> SSAFile:
+               options: TranslationSettings,
+               frame_source: frames.FrameSource | None = None) -> SSAFile:
     if plan.in_place:
-        return _translate_in_place(sub_data, request, job, plan, line_range, options)
+        return _translate_in_place(sub_data, request, job, plan, line_range, options, frame_source)
 
     output = job.path(Stage.TRANSLATED)
     partial = job.path(Stage.PARTIAL)
@@ -804,7 +911,7 @@ def _translate(sub_data: SSAFile,
 
     context = _context(sub_data, request, job, plan.action("context") or REUSE, options)
 
-    system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to)
+    system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to, frame_source is not None)
     llm = AIToolFactory.get_llm_provider(
         model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries,
         effort=options.effort)
@@ -820,7 +927,8 @@ def _translate(sub_data: SSAFile,
         lang_to=request.lang_to,
         options=options,
         line_range=line_range,
-        report_file=_translation_report_path(job))
+        report_file=_translation_report_path(job),
+        frames=frame_source)
     sub_data = sub_utils.replace_lines(translated_lines[start_index:], sub_data, start_index)
     sub_data = sub_utils.md_to_ass(sub_data, line_range)
 
@@ -839,7 +947,7 @@ def _in_place_paths(job: Job, line_range: LineRange) -> tuple[Path, Path]:
 
 
 def _translate_in_place(sub_data: SSAFile, request: RunRequest, job: Job, plan: Plan, line_range: LineRange,
-                        options: TranslationSettings) -> SSAFile:
+                        options: TranslationSettings, frame_source: frames.FrameSource | None = None) -> SSAFile:
     """Translates only these lines again, and puts them into the job's whole translation."""
     output = job.path(Stage.TRANSLATED)
     source = sub_utils.fingerprint(sub_data)
@@ -853,7 +961,7 @@ def _translate_in_place(sub_data: SSAFile, request: RunRequest, job: Job, plan: 
 
     partial, report_file = _in_place_paths(job, line_range)
     context = _context(sub_data, request, job, plan.action("context") or REUSE, options)
-    system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to)
+    system_prompt = translation_prompts.system_prompt(request.lang_from, request.lang_to, frame_source is not None)
     llm = AIToolFactory.get_llm_provider(
         model_name=request.model, system_prompt=system_prompt, max_retries=options.server_retries,
         effort=options.effort)
@@ -861,7 +969,7 @@ def _translate_in_place(sub_data: SSAFile, request: RunRequest, job: Job, plan: 
         sub_file=sub_data, output_file=partial, context_prompt=context, llm=llm,
         fallback_llm=_fallback_llm(system_prompt, request.model, options),
         lang_from=request.lang_from, lang_to=request.lang_to, options=options,
-        line_range=line_range, report_file=report_file)
+        line_range=line_range, report_file=report_file, frames=frame_source)
 
     new_lines = translated_lines[line_range.start:line_range.end + 1]
     whole = sub_utils.replace_lines(new_lines, whole, line_range.start)
@@ -1014,7 +1122,8 @@ def run(request: RunRequest, settings: Settings) -> None:
         video, audio = (None, input_file) if kind_of(input_file) is FileKind.AUDIO else (input_file, None)
     elif request.url:
         logger.info("download: fetching...")
-        input_file, info = av_utils.download(request.url, request.output_dir)
+        max_height = settings.frames.height if settings.frames.enabled and request.translate else None
+        input_file, info = av_utils.download(request.url, request.output_dir, max_height)
         logger.info(f"download: {input_file.name}")
         if kind_of(input_file) is FileKind.AUDIO:
             video, audio = None, input_file
@@ -1101,9 +1210,12 @@ def _run_stages(request: RunRequest, settings: Settings, job: Job, plan: Plan) -
                                         terms if "retranscribe" in users else None)
     if plan.action("fix"):
         sub_data, line_range = _fix(sub_data, job, line_range, settings)
+    frame_source = _frame_source(job, plan, settings) if plan.action("frames") else None
+    if plan.frames_off and plan.action("translate") == RUN:
+        logger.warning(f"translate: {plan.frames_off}")
     if plan.action("translate"):
         sub_data = _translate(sub_data, request, job, plan, request.line_range if plan.in_place else line_range,
-                              settings.translation)
+                              settings.translation, frame_source)
     if plan.action("pad"):
         sub_data = _pad(sub_data, job, line_range, settings)
 

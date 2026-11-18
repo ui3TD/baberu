@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import base64
 import logging
 import time
 
@@ -44,6 +45,48 @@ class Completion:
         if status == COMPLETE and not text.strip():
             status = EMPTY
         return cls(text, status)
+
+
+@dataclass(frozen=True)
+class Image:
+    """A picture in a prompt: the file's bytes and its media type."""
+    data: bytes
+    media_type: str = "image/jpeg"
+
+    @property
+    def base64(self) -> str:
+        return base64.standard_b64encode(self.data).decode("ascii")
+
+    @property
+    def data_url(self) -> str:
+        return f"data:{self.media_type};base64,{self.base64}"
+
+
+# A prompt is plain text, or text and pictures in order.
+Prompt = str | list[str | Image]
+
+
+def prompt_parts(prompt: Prompt) -> list[str | Image]:
+    """A prompt as a list of text and pictures, in order."""
+    return [prompt] if isinstance(prompt, str) else list(prompt)
+
+
+def has_images(prompt: Prompt) -> bool:
+    return any(isinstance(part, Image) for part in prompt_parts(prompt))
+
+
+def prompt_text(prompt: Prompt) -> str:
+    """The prompt's text, with each picture shown as [image, N KB]."""
+    return "".join(part if isinstance(part, str) else f"[image, {len(part.data) // 1024} KB]"
+                   for part in prompt_parts(prompt))
+
+
+def split_prefix(prompt: Prompt, prefix: str) -> list[str | Image]:
+    """The prompt's parts, with `prefix` as a text part of its own at the start. Empty parts are left out."""
+    parts = prompt_parts(prompt)
+    if prefix and parts and isinstance(parts[0], str) and parts[0].startswith(prefix):
+        parts = [prefix, parts[0][len(prefix):], *parts[1:]]
+    return [part for part in parts if not (isinstance(part, str) and not part)]
 
 
 @dataclass(frozen=True)
@@ -128,6 +171,7 @@ class LLMProvider(ABC):
     supports_grounding: bool = False
     supports_prefill: bool = False
     supports_caching: bool = False  # takes `cache_prefix` in _complete
+    supports_images: bool = False   # takes prompts with pictures in _complete
 
     def __init__(self, api_key: str, model: str, system_prompt: str | None = None, max_retries: int = 5,
                  effort: str | None = None):
@@ -148,8 +192,12 @@ class LLMProvider(ABC):
         self.max_retries = max_retries
         self.logger = logging.getLogger(type(self).__module__)
 
+    def takes_images(self) -> bool:
+        """Whether this model can be sent pictures."""
+        return self.supports_images
+
     def prompt(self,
-               user_prompt: str,
+               user_prompt: Prompt,
                system_prompt: str | None = None,
                *,
                grounding: bool = False,
@@ -160,7 +208,7 @@ class LLMProvider(ABC):
                              cache_prefix=cache_prefix).text
 
     def complete(self,
-                 user_prompt: str,
+                 user_prompt: Prompt,
                  system_prompt: str | None = None,
                  *,
                  grounding: bool = False,
@@ -169,26 +217,30 @@ class LLMProvider(ABC):
         """Sends a prompt to the LLM and returns the response, with how it ended.
 
         Args:
-            user_prompt: The user's input prompt.
+            user_prompt: The user's input prompt: text, or a list of text and pictures.
+                Raises ValueError for pictures the model can't take.
             system_prompt: A system instruction to override the instance default.
             grounding: Let the model search the web. Raises ValueError if unsupported.
             prefill: Text to start the response with. Raises ValueError if unsupported.
-            cache_prefix: The start of user_prompt that repeats across requests. Providers
-                that can cache it (with the system prompt) do; the rest ignore it.
+            cache_prefix: The start of user_prompt's first text that repeats across requests.
+                Providers that can cache it (with the system prompt) do; the rest ignore it.
         """
         if grounding and not self.supports_grounding:
             raise ValueError(f"{self.model} does not support grounding through {type(self).__name__}.")
         if prefill and not self.supports_prefill:
             raise ValueError(f"{self.model} does not support prefill through {type(self).__name__}.")
+        if has_images(user_prompt) and not self.takes_images():
+            raise ValueError(f"{self.model} does not take images through {type(self).__name__}.")
 
         system = self.system_prompt if system_prompt is None else system_prompt
-        self.logger.debug(f"{self.model} prompt:\nSYSTEM: {system}\nUSER: {user_prompt}")
+        self.logger.debug(f"{self.model} prompt:\nSYSTEM: {system}\nUSER: {prompt_text(user_prompt)}")
+        first = prompt_parts(user_prompt)[0] if prompt_parts(user_prompt) else ""
 
         attempt = 0
         while True:
             try:
-                extra = {"cache_prefix": cache_prefix} \
-                    if cache_prefix and self.supports_caching and user_prompt.startswith(cache_prefix) else {}
+                extra = {"cache_prefix": cache_prefix} if cache_prefix and self.supports_caching \
+                    and isinstance(first, str) and first.startswith(cache_prefix) else {}
                 response = self._complete(user_prompt, system, grounding, prefill, **extra)
                 self.logger.debug(f"{self.model} response ({response.status}):\n{response.text}")
                 if response.status != COMPLETE:
@@ -205,5 +257,5 @@ class LLMProvider(ABC):
                 time.sleep(delay)
 
     @abstractmethod
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
+    def _complete(self, user_prompt: Prompt, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         """Makes one request to the provider and returns the response."""

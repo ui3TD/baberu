@@ -1,7 +1,7 @@
 from google.genai import Client
 from google.genai.types import Content, GenerateContentConfig, GoogleSearch, Part, SafetySetting, Tool
 
-from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider
+from .base import COMPLETE, REFUSED, TRUNCATED, Completion, Image, LLMProvider, Prompt, prompt_parts
 
 _UNFILTERED = [
     SafetySetting(category=category, threshold="BLOCK_NONE")
@@ -16,24 +16,31 @@ _UNFILTERED = [
 
 class GeminiProvider(LLMProvider):
     supports_grounding = True
+    supports_images = True
 
     def __init__(self, api_key: str, model: str, system_prompt: str | None = None, max_retries: int = 5,
                  effort: str | None = None):
         super().__init__(api_key, model, system_prompt, max_retries, effort)
         self.client = Client(api_key=self.api_key)
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str) -> Completion:
+    def _complete(self, user_prompt: Prompt, system_prompt: str, grounding: bool, prefill: str) -> Completion:
         config = {"system_instruction": system_prompt, "safety_settings": _UNFILTERED}
         if grounding:
             config["tools"] = [Tool(google_search=GoogleSearch())]
 
         response = self.client.models.generate_content(
             model=self.model,
-            contents=[Content(parts=[Part(text=user_prompt)], role="user")],
+            contents=[Content(parts=user_parts(user_prompt), role="user")],
             config=GenerateContentConfig(**config),
         )
 
         return gemini_completion(response)
+
+
+def user_parts(prompt: Prompt) -> list[Part]:
+    """The prompt as Gemini parts: text, and images as inline bytes."""
+    return [Part.from_bytes(data=part.data, mime_type=part.media_type) if isinstance(part, Image) else Part(text=part)
+            for part in prompt_parts(prompt) if part != ""]
 
 
 _REFUSAL_REASONS = {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "MODEL_ARMOR"}

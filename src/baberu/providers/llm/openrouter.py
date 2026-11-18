@@ -1,6 +1,24 @@
+import functools
+import logging
+
+import httpx
 from openai import OpenAI
 
-from .base import COMPLETE, REFUSED, TRUNCATED, Completion, LLMProvider, record_usage, responses_usage
+from .base import (COMPLETE, REFUSED, TRUNCATED, Completion, Image, LLMProvider, Prompt, record_usage,
+                   responses_usage, split_prefix)
+
+MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+logger = logging.getLogger(__name__)
+
+
+@functools.cache
+def input_modalities() -> dict[str, frozenset[str]]:
+    """What each OpenRouter model takes as input (text, image, ...), by model id. Read once per run."""
+    reply = httpx.get(MODELS_URL, timeout=30)
+    reply.raise_for_status()
+    return {model["id"]: frozenset((model.get("architecture") or {}).get("input_modalities") or [])
+            for model in reply.json().get("data", [])}
 
 
 class OpenRouterProvider(LLMProvider):
@@ -13,11 +31,21 @@ class OpenRouterProvider(LLMProvider):
     supports_grounding = True  # through OpenRouter's web plugin, whatever the model
     supports_prefill = True
     supports_caching = True
+    supports_images = True     # for models whose OpenRouter listing includes image input
 
     def __init__(self, api_key: str, model: str, system_prompt: str | None = None, max_retries: int = 5,
                  effort: str | None = None):
         super().__init__(api_key, model, system_prompt, max_retries, effort)
         self.client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1", max_retries=0)
+
+    def takes_images(self) -> bool:
+        """Whether OpenRouter lists image input for this model. False, with a warning, when the list can't be read."""
+        try:
+            modalities = input_modalities()
+        except (httpx.HTTPError, ValueError) as error:
+            logger.warning(f"Can't read OpenRouter's model list ({error}); sending {self.model} no images.")
+            return False
+        return "image" in modalities.get(self.model.split(":")[0], frozenset())
 
     def request_body(self, grounding: bool) -> dict:
         """OpenRouter's own fields, beyond the chat completions API."""
@@ -29,20 +57,28 @@ class OpenRouterProvider(LLMProvider):
         return body
 
     @staticmethod
-    def messages(user_prompt: str, system_prompt: str, prefill: str = "", cache_prefix: str = "") -> list[dict]:
-        """The request's messages. A cache marker after `cache_prefix` caches it with the system prompt."""
-        user: str | list[dict] = user_prompt
-        if cache_prefix:
-            user = [{"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}}]
-            rest = user_prompt[len(cache_prefix):]
-            if rest:
-                user.append({"type": "text", "text": rest})
+    def messages(user_prompt: Prompt, system_prompt: str, prefill: str = "", cache_prefix: str = "") -> list[dict]:
+        """The request's messages. A cache marker after `cache_prefix` caches it with the system prompt.
+
+        Plain text with no prefix is sent as a string; anything else as a list of parts.
+        """
+        user: str | list[dict] = user_prompt if isinstance(user_prompt, str) and not cache_prefix else []
+        if not isinstance(user, str):
+            parts = split_prefix(user_prompt, cache_prefix)
+            for index, part in enumerate(parts):
+                if isinstance(part, Image):
+                    user.append({"type": "image_url", "image_url": {"url": part.data_url}})
+                    continue
+                block: dict = {"type": "text", "text": part}
+                if index == 0 and cache_prefix and part == cache_prefix:
+                    block["cache_control"] = {"type": "ephemeral"}
+                user.append(block)
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user}]
         if prefill:
             messages.append({"role": "assistant", "content": prefill})
         return messages
 
-    def _complete(self, user_prompt: str, system_prompt: str, grounding: bool, prefill: str,
+    def _complete(self, user_prompt: Prompt, system_prompt: str, grounding: bool, prefill: str,
                   cache_prefix: str = "") -> Completion:
         reply = self.client.chat.completions.create(
             model=self.model,

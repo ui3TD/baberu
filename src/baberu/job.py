@@ -7,7 +7,9 @@ fixed names, and facts live in manifest.json.
       manifest.json
       audio.ogg  transcript.json  raw.ass  2pass.ass  fixed.ass  padded.ass
       splits.json   (saved line-split decisions)
+      scenes.json   (the video's cut times)
       segments/<start>-<end>.<model>.json
+      frames/<ms>-<height>p.jpg   (frames sent with translation batches)
       en/  context.txt  partial.txt  translated.ass  padded.ass
       lines-5-10/   (the same structure, for a --lines run)
 """
@@ -158,6 +160,20 @@ class Job:
         """Where a retranscribed piece of audio is kept, named by model."""
         slug = re.sub(r"[^A-Za-z0-9._-]", "_", model)
         return self.folder / "segments" / f"{start_ms}-{end_ms}.{slug}.json"
+
+    @property
+    def scenes_path(self) -> Path:
+        """The video's cut times, from the frames stage."""
+        return self.folder / "scenes.json"
+
+    @property
+    def frames_dir(self) -> Path:
+        """Frames grabbed from the video for translation."""
+        return self.folder / "frames"
+
+    def clear_frames(self) -> None:
+        self.clear(self.scenes_path)
+        shutil.rmtree(self.frames_dir, ignore_errors=True)
 
     @property
     def splits_path(self) -> Path:

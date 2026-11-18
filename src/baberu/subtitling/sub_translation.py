@@ -12,6 +12,7 @@ from baberu import constants
 from baberu.errors import BaberuError
 from baberu.settings import TranslationSettings
 from baberu.subtitling import translation_prompts, translation_response
+from baberu.subtitling.frames import Frame, FrameSource
 from baberu.subtitling.types import LineRange
 from baberu.tools.file_utils import atomic_write_text
 
@@ -30,6 +31,7 @@ class _Batch:
     lang_from: str
     lang_to: str
     options: TranslationSettings
+    frames: FrameSource | None = None
     attempts: list[dict] = field(default_factory=list)
     # Events whose translation came back the same as the source twice. They no longer count as problems.
     confirmed: set[int] = field(default_factory=set)
@@ -48,7 +50,8 @@ def translate(sub_file: SSAFile,
               lang_to: str,
               options: TranslationSettings,
               line_range: LineRange | None = None,
-              report_file: Path | None = None) -> tuple[list[str], dict]:
+              report_file: Path | None = None,
+              frames: FrameSource | None = None) -> tuple[list[str], dict]:
     """Translates a subtitle file, saving progress after every batch.
 
     Args:
@@ -62,6 +65,7 @@ def translate(sub_file: SSAFile,
         options: Batch sizes and retry limits.
         line_range: Translates only these lines.
         report_file: Where the report is saved with every batch. Kept when resuming.
+        frames: Video frames sent with each request to models that take images.
 
     Returns:
         The lines up to and including the last one translated, and a report of
@@ -116,7 +120,7 @@ def translate(sub_file: SSAFile,
 
             # Only this run's translations are context; source lines before a --lines range are not.
             previous = translated_lines[range_start:]
-            batch = _Batch(context_prompt, llms, lang_from, lang_to, options)
+            batch = _Batch(context_prompt, llms, lang_from, lang_to, options, frames)
             results = _translate_batch(batch, current_batch, batch_size, previous, llms)
             new_lines, unresolved = _finish(results, current_batch, batch_size, i, batch)
 
@@ -164,6 +168,9 @@ def _translate_batch(batch: _Batch,
     wrong. A truncated response splits the batch instead of being resent. A
     refusal, an empty response, an error, or running out of retries moves on to
     the next model. Returns a translation, or None, for each kept event.
+
+    A model that takes images also gets video frames: for the kept events in a
+    full request, and for the entries asked for in a targeted retry.
     """
     results: list[str | None] = list(seed) if seed else [None] * len(events)
 
@@ -175,10 +182,14 @@ def _translate_batch(batch: _Batch,
                 return results[:kept]
 
             targeted = len(needed) < kept
-            prompt = _prompt(batch, events, results, needed, previous) if targeted else \
+            text = _prompt(batch, events, results, needed, previous) if targeted else \
                 translation_prompts.translate_prompt(previous, batch.context_prompt, events, batch.lang_from,
                                                      batch.lang_to, batch.options.context_lines)
+            shown = _frames(batch, llm, [events[i] for i in sorted(needed)] if targeted else events[:kept])
+            prompt = translation_prompts.with_frames(text, shown, events)
             attempt = {"model": llm.model, "asked": len(needed) if targeted else len(events)}
+            if shown:
+                attempt["frames"] = len(shown)
             batch.attempts.append(attempt)
 
             try:
@@ -209,6 +220,13 @@ def _translate_batch(batch: _Batch,
                 logger.warning(f"Translation attempt with {llm.model}: {attempt['problems']} of {kept} lines still need work.")
 
     return results[:kept]
+
+
+def _frames(batch: _Batch, llm: LLMProvider, events: list[SSAEvent]) -> list[Frame]:
+    """The frames for these events, or none when there is no video or the model can't take images."""
+    if batch.frames is None or not llm.takes_images():
+        return []
+    return batch.frames.for_events(events)
 
 
 def _problems(batch: _Batch, results: list[str | None], events: list[SSAEvent], kept: int) -> dict[int, str]:

@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-REDO_CHOICES = ("extract", "keyterms", "transcribe", "convert", "retranscribe", "context", "translate", "all")
+REDO_CHOICES = ("extract", "keyterms", "transcribe", "convert", "retranscribe", "frames", "context", "translate", "all")
 
 
 def init_parser() -> ArgumentParser:
