@@ -104,7 +104,8 @@ def translate_title(job: Job, title: str, lang_from: str, lang_to: str, settings
     notes = notes_file.read_text(encoding="utf-8").strip() if notes_file.exists() else ""
     language = translation_prompts.language_name(lang_to)
     prompt = f"Translate this {translation_prompts.language_name(lang_from)} video title into {language}. " \
-             "Keep it short. Reply with the title only."
+             "Translate all of it, leaving nothing out, and keep its tone. Keep bracketed tags such as " \
+             "【...】 as tags in the same brackets. Reply with the title only."
     if notes:
         prompt += " The subtitles were translated with the notes below; spell names and terms exactly as " \
                   f"their glossary does.\n\nNotes:\n{notes}"
